@@ -141,12 +141,12 @@ Built the core data layer:
 
 ---
 
-## Phase 1C: Consumer Data (Leafly + AllBud) — IN PROGRESS
+## Phase 1C: Consumer Data (Leafly + AllBud) — COMPLETE
 
 **Plan:** `docs/plans/2026-02-20-phase1c-consumer-data.md` (7 tasks)
-**Commits:** bead366 → e45a79f (6 commits, Tasks 1-6)
-**Tests:** 122 passing (45 new), 3 network-deselected
-**Status:** Tasks 1-6 COMPLETE, Task 7 (live DB import) IN PROGRESS
+**Commits:** bead366 → e45a79f (6 commits, Tasks 1-6), + Phase 1C.2 (uncommitted)
+**Tests:** 144 passing (67 new), 3 network-deselected
+**Status:** All tasks COMPLETE including live DB import
 
 ### Task-by-Task Results
 
@@ -158,16 +158,37 @@ Built the core data layer:
 | 4. Consumer Effect Mapper | 7eb9212 | consumer_mapper.py, test | 8 new | DONE |
 | 5. Consumer Data Importer | 712dae2 | consumer_import.py, test | 5 new | DONE |
 | 6. Confidence + Pipeline CLI | e45a79f | confidence.py, consumer_pipeline.py, tests | 6 new | DONE |
-| 7. Run on Live DB | (operational) | — | — | IN PROGRESS |
+| 7. Run on Live DB | (operational) | — | — | DONE |
+
+### Phase 1C.2: Leafly Review Effect Extraction
+
+| Task | Files | Tests | Status |
+|------|-------|-------|--------|
+| Firecrawl Key Config | consumer_config.py (modified) | — | DONE |
+| Review Effect Extractor | review_extractor.py (new) | 14 new | DONE |
+| Review Import Pipeline | review_pipeline.py (new) | 8 new | DONE |
+| Run on Live DBs | (operational) | — | DONE |
+
+**Results:**
+- 165,146 reviews processed across 2,524 strains (from Strain Tracker `external_reviews`)
+- 2,499 strains matched to Cannalchemy DB (99% match rate)
+- **2,379 strains enriched** with effect data
+- **39,583 effect_reports imported** with source="leafly-reviews"
+- 0 LLM calls needed (regex extraction alone was highly effective)
+- 2,156 strains now have multi-source effect confirmation
+- Pipeline completed in ~2 minutes
 
 ### Architecture
 
 - **AllBud scraper:** httpx + BeautifulSoup, parses flip-card panels (Effects, May Relieve, Flavors)
 - **Leafly scraper:** Firecrawl API → markdown, regex parsing for effects+votes, medical+percentages, terpenes
+- **Review extractor:** regex matching against 52 canonical effects + all synonyms from review text, with optional LLM fallback via Z.AI
 - **Consumer mapper:** normalize → exact match → synonym match → fuzzy match (≥85) → unmapped
-- **Pipeline CLI:** `python -m cannalchemy.data.consumer_pipeline --db DB --source allbud|leafly --limit N`
+- **Pipeline CLIs:**
+  - `python -m cannalchemy.data.consumer_pipeline --db DB --source allbud|leafly --limit N`
+  - `python -m cannalchemy.data.review_pipeline --db DB --st-db ST_DB --limit N --llm-fallback`
 - **Confidence scoring:** base 0.4 + source bonus (+0.2/source) + vote bonus (0-0.2 log scale), max 1.0
-- **Resumability:** JSON checkpoint files (.allbud_progress.json, .leafly_progress.json)
+- **Resumability:** JSON checkpoint files per pipeline
 
 ### Decisions Made
 
@@ -176,29 +197,147 @@ Built the core data layer:
 3. **AllBud URL includes strain type** (indica/sativa/hybrid) — follows redirects if wrong
 4. **Firecrawl markdown preferred** over JSON extraction (1 credit vs 5 credits per page)
 5. **Effect mapping is near-1:1** — Leafly/AllBud names map directly after lowercase+hyphenation
+6. **Review extraction via regex only** — 52 canonical effects + all synonyms matched as whole words, case-insensitive. LLM fallback available but unnecessary (regex coverage was sufficient)
+7. **Firecrawl API key** loaded from env var or Strain Tracker `.env` file (fallback path)
 
-### Live DB Import Progress (Task 7)
+### Combined Live DB Import Results
 
-AllBud pipeline running against 11,700 strain-tracker priority strains (strains with compositions but no effects).
+| Source | Effect Reports | Strains Enriched |
+|--------|---------------|-----------------|
+| strain-tracker | 24,624 | 6,614 |
+| leafly-reviews | 39,583 | 2,389 |
+| allbud | 3,793 | 389 |
+| **Total** | **68,000** | **~7,000 unique** |
 
-**Pilot results (100 strains):**
-- Hit rate: ~14% (many obscure strain names, especially early alphabetically)
-- Effects per hit: ~9 on average
-- Full pipeline running in background, will update with final results
+### ML-Readiness After Phase 1C
 
-**Target:** 15,000+ ML-ready strains (60%+)
+- ML-ready strains (pre-cleanup): 6,073 / 67,477 = 9.0%
+- Bottleneck: 42K Cannlytics strains have compositions but no effect data (they don't exist in Leafly review corpus)
+- Top effects from reviews: relaxed (28K mentions), pain (17K), anxious (12K), happy (11K), energetic (10K)
+
+### Effect Label Cleanup (post-1C.2)
+
+Cleaned strain-tracker effect labels:
+- **36 synonym effects remapped** to canonical (e.g., "relaxing"→"relaxed", "uplifting"→"uplifted"): 2,215 reports saved
+- **13 duplicate reports merged** (same strain+effect+source after remap)
+- **2,966 true junk reports deleted** (sentence fragments, non-effect strings)
+- **2,153 orphaned effect entries removed** from effects table
+- Effects table now has exactly **51 entries** (all canonical)
+- Confidence scores recomputed for 66,112 reports
+
+### Final Phase 1 ML-Readiness
+
+| Metric | Value |
+|--------|-------|
+| ML-ready strains | **4,980** / 67,477 (7.4%) |
+| Effect reports | 66,112 (all canonical) |
+| Effects table | 51 entries (clean) |
+| Multi-source strains | 2,188 |
+| Sources | strain-tracker (21,645), leafly-reviews (39,583), allbud (4,856) |
 
 ---
 
-## Phase 2: Effect Prediction (NOT STARTED)
+## Phase 2: Effect Prediction — COMPLETE
 
-**What it does:**
-- XGBoost model: terpene/cannabinoid profile → predicted effects
-- Requires Phase 1A-1C data enrichment first
+**Goal:** XGBoost ensemble predicting effects from terpene/cannabinoid profiles
+**Data:** 5,017 ML-ready strains, 27 molecules + 8 engineered features = 35 total
+**Compute:** N100 mini-PC (CPU-only, ~6 min training)
+
+### Task-by-Task Results
+
+| Task | Files | Tests | Status |
+|------|-------|-------|--------|
+| Dataset Builder | dataset.py (new) | 15 new | DONE |
+| Effect Predictor | effect_predictor.py (new) | 12 new | DONE |
+| Model Improvement (v2) | dataset.py (engineered features) | — | DONE |
+| Prediction API | api/app.py (new) | 8 new | DONE |
+
+### Model Performance
+
+**V1 (raw 27 features):** Mean AUC = 0.802, Median = 0.814
+**V2 (35 features with engineering):** Mean AUC = **0.811**, Median = **0.818**
+
+#### Engineered Features (v2)
+- `is_indica`, `is_sativa`, `is_hybrid` — strain type one-hot
+- `total_terpenes`, `total_cannabinoids` — aggregate concentrations
+- `terpene_diversity` — count of non-zero terpenes
+- `dominant_terpene_pct` — max terpene value
+- `thc_cbd_ratio` — THC/CBD ratio
+
+#### Weak Effect Improvement (v1 → v2)
+
+| Effect | v1 AUC | v2 AUC | Delta |
+|--------|--------|--------|-------|
+| creative | 0.666 | 0.672 | +0.006 |
+| uplifted | 0.685 | 0.695 | +0.010 |
+| relaxed | 0.705 | 0.712 | +0.007 |
+| euphoric | 0.723 | 0.727 | +0.005 |
+| energetic | 0.755 | 0.768 | +0.013 |
+| inflammation | 0.712 | 0.754 | +0.042 |
+| fatigue-medical | 0.760 | 0.799 | +0.038 |
+
+#### Top 10 Effects by AUC (v2)
+
+| Effect | AUC | F1 | Category |
+|--------|-----|-----|----------|
+| pain | 0.872 | 0.711 | medical |
+| anxious | 0.865 | 0.665 | negative |
+| anxiety | 0.863 | 0.657 | medical |
+| depression | 0.862 | 0.630 | medical |
+| stress | 0.860 | 0.661 | medical |
+| body-high | 0.856 | 0.626 | positive |
+| insomnia | 0.853 | 0.563 | medical |
+| head-high | 0.850 | 0.635 | positive |
+| spacey | 0.842 | 0.441 | positive |
+| couch-lock | 0.838 | 0.564 | negative |
+
+### Feature Importance Analysis
+
+**Dominant terpene predictors across all effects:**
+
+| Terpene | Top predictor for | Notes |
+|---------|-------------------|-------|
+| **Ocimene** | pain, anxiety, stress, depression, body-high, tingly, happy, giggly, headache, talkative | Most powerful predictor overall; drives medical + mood effects |
+| **Pinene** | focused (0.28), hungry (0.35), nauseous, paranoid, sleepy, couch-lock, migraines, adhd, nausea-relief | Strong discriminator for cognitive + appetite effects |
+| **Humulene** | fatigued, ptsd, dizzy, dry-eyes, meditative, bipolar, fibromyalgia | Anti-inflammatory terpene; predicts sedative/medical effects |
+| **Linalool** | calm (0.22), relaxed (0.18), sleepy, insomnia, fibromyalgia | Known anxiolytic; matches pharmacology |
+
+**Engineered features that mattered:**
+- `terpene_diversity` — top-3 for creative (0.094); diverse profiles → creative effects
+- `is_sativa` — top-3 for creative (0.067), energetic; strain genetics matter
+- `total_cannabinoids` — useful for medical predictions (pain, anxiety)
+- `thc_cbd_ratio` — contributes to anxious/paranoid/headache predictions
+
+**Pharmacological validation:**
+- Linalool → calm/relaxed/sleepy — matches known GABAergic/anxiolytic activity
+- Pinene → focused — matches known acetylcholinesterase inhibition
+- Ocimene → pain/anti-inflammatory — matches known anti-inflammatory properties
+- Humulene → fatigue/sedation — matches known sedative properties
+
+### Prediction API
+
+**Endpoints:**
+- `POST /predict` — takes chemical profile, returns ranked effect predictions with probabilities
+- `GET /effects` — lists all 51 predictable effects with AUC scores
+- `GET /features` — lists expected input features
+- `GET /health` — health check
+
+**Example:** Blue Dream profile (THC 21%, myrcene 0.74%, pinene 0.42%) → relaxed 84%, happy 80%, pain 79%, focused 77%
 
 ---
 
 ## File Inventory
+
+### ML modules (`cannalchemy/models/`)
+| File | Purpose | Phase |
+|------|---------|-------|
+| dataset.py | Feature/label matrix builder + engineered features | 2 |
+| effect_predictor.py | XGBoost multi-label classifier, CV, calibration, save/load | 2 |
+
+### API modules (`cannalchemy/api/`)
+| File | Purpose | Phase |
+|------|---------|-------|
+| app.py | FastAPI prediction API (predict, effects, features, health) | 2 |
 
 ### Source modules (`cannalchemy/data/`)
 | File | Purpose | Phase |
@@ -221,13 +360,15 @@ AllBud pipeline running against 11,700 strain-tracker priority strains (strains 
 | cannlytics_import.py | Lab results chunked import | 1B |
 | cannlytics_strain_match.py | Strain normalization + matching | 1B |
 | cannlytics_aggregate.py | Median aggregation to compositions | 1B |
-| consumer_config.py | URL builders + scrape config | 1C |
+| consumer_config.py | URL builders + scrape config + Firecrawl key | 1C |
 | allbud_scraper.py | AllBud HTML parser (BeautifulSoup) | 1C |
 | leafly_scraper.py | Leafly markdown/JSON parser | 1C |
 | consumer_mapper.py | Effect name → canonical mapping | 1C |
 | consumer_import.py | Import consumer data to effect_reports | 1C |
 | confidence.py | Multi-source confidence scoring | 1C |
 | consumer_pipeline.py | Consumer scraping pipeline CLI | 1C |
+| review_extractor.py | Regex + LLM effect extraction from review text | 1C.2 |
+| review_pipeline.py | Review extraction pipeline CLI | 1C.2 |
 
 ### Test files (`tests/`)
 | File | Tests | Phase |
@@ -258,7 +399,12 @@ AllBud pipeline running against 11,700 strain-tracker priority strains (strains 
 | test_consumer_import.py | 5 | 1C |
 | test_confidence.py | 4 | 1C |
 | test_consumer_pipeline.py | 2 | 1C |
-| **Total** | **125 (122 run + 3 network)** | |
+| test_review_extractor.py | 14 | 1C.2 |
+| test_review_pipeline.py | 8 | 1C.2 |
+| test_dataset.py | 15 | 2 |
+| test_effect_predictor.py | 12 | 2 |
+| test_api.py | 8 | 2 |
+| **Total** | **182 (179 run + 3 network)** | |
 
 ### Docs
 | File | Purpose |
@@ -278,8 +424,16 @@ AllBud pipeline running against 11,700 strain-tracker priority strains (strains 
 ```
 # pyproject.toml
 networkx, rapidfuzz, httpx, pandas, sqlalchemy, huggingface_hub, openpyxl, beautifulsoup4
+# ml: scikit-learn, xgboost
+# api: fastapi, uvicorn
 # dev: pytest
 ```
+
+### Trained models (`data/models/`)
+| Dir | Features | Mean AUC | Notes |
+|-----|----------|----------|-------|
+| v1/ | 27 (raw molecules) | 0.802 | Baseline |
+| v2/ | 35 (+ engineered) | 0.811 | Production model (API default) |
 
 ## Z.AI API
 
