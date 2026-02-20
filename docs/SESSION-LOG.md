@@ -84,23 +84,46 @@ Built the core data layer:
 
 ---
 
-## Phase 1B: Cannlytics Lab Data Import (NEXT)
+## Phase 1B: Cannlytics Lab Data Import (IN PROGRESS)
 
-**Plan:** `docs/plans/2026-02-20-dataset-enrichment-design.md` (Section: Sub-phase 1B)
-**Status:** Design approved, implementation plan NOT yet written
+**Plan:** `docs/plans/2026-02-20-phase1b-cannlytics-import.md` (7 tasks)
+**Design doc:** `docs/plans/2026-02-20-dataset-enrichment-design.md` (Section: Sub-phase 1B)
+**Status:** Implementation plan written, execution starting
 
-**What it does:**
-- Import Cannlytics HuggingFace dataset (1.2M lab test records, CC BY 4.0)
-- 14 US states, download via `huggingface_hub`
-- Cross-reference strains with existing DB via fuzzy matching
-- Populate `lab_results` table (currently empty)
-- Enrich terpene profiles from lab-grade data
+### Architecture Decisions (from interview)
 
-**Known data quality issues:**
-- All Cannlytics values stored as strings
-- Sentinel values: 0.000000001 = ND (not detected), 0.0000001 = LOQ
-- Schema varies per state
-- Need to handle `huggingface_hub` dependency
+1. **Import scope:** Top 5 states + California → revised to NV, CA, MD, WA, MA (608K records). Skipping OR (no terpenes, no strain names) and MI (13 cols, useless).
+2. **Storage model:** Import into `lab_results` table only, aggregate separately into `strain_compositions`.
+3. **Unmatched strains:** Create new strains with `source='cannlytics'`.
+4. **Aggregation method:** Median per strain+molecule pair.
+5. **Data coexistence:** Keep both `measurement_type='reported'` (Strain Tracker) and `measurement_type='lab_tested'` (Cannlytics) in `strain_compositions`.
+6. **Molecule scope:** Map to existing 27 molecules only (no new ones).
+
+### Data Exploration Findings
+
+Schema varies **dramatically** per state:
+
+| State | Records | Strain Name | Terpene Data | Format | Priority |
+|-------|---------|-------------|--------------|--------|----------|
+| NV | 153K | product_name | Flat columns (88%, 13 terpenes) | CSV | HIGH |
+| CA | 72K | strain_name (sparse) + product_name | JSON results (157 analytes) | CSV | HIGH |
+| MD | 105K | strain_name (100%) | Only total_terpenes | CSV | MEDIUM |
+| WA | 203K | strain_name (84%) | JSON results (sparse terpenes) | XLSX | MEDIUM |
+| MA | 75K | No strain_name | JSON results (TBD) | CSV | MEDIUM |
+| OR | 197K | No strain_name | Only THC/CBD flat | CSV | SKIP |
+| MI | 90K | No strain_name | 13 cols total | CSV | SKIP |
+
+Key technical issues:
+- Column names vary: `d_limonene` vs `limonene`, `alpha_ocimene` vs `ocimene`
+- Values can be: floats, "ND", "<LLOQ", sentinel values (1e-9, 1e-7)
+- NV uses flat columns; CA/WA/MA use nested JSON `results` field
+- WA uses .xlsx (requires openpyxl), rest are .csv
+
+### Dependencies Added (not yet in pyproject.toml)
+- `huggingface_hub` — HuggingFace dataset download
+- `pandas` — CSV/XLSX reading and data manipulation
+- `pyarrow` — Parquet support (pandas optional dep)
+- `openpyxl` — Excel .xlsx support for WA data
 
 **Target:** 200K+ lab-tested compositions, median 8-12 terpenes per strain
 
@@ -172,6 +195,7 @@ Built the core data layer:
 | docs/plans/2026-02-20-cannalchemy-phase1-plan.md | Phase 1 implementation plan |
 | docs/plans/2026-02-20-dataset-enrichment-design.md | 1A/1B/1C enrichment design (approved) |
 | docs/plans/2026-02-20-phase1a-data-cleaning.md | Phase 1A implementation plan (7 tasks) |
+| docs/plans/2026-02-20-phase1b-cannlytics-import.md | Phase 1B implementation plan (7 tasks) |
 | docs/SESSION-LOG.md | This file — cross-session tracking |
 
 ---
@@ -181,6 +205,8 @@ Built the core data layer:
 ```
 # pyproject.toml
 networkx, rapidfuzz, httpx, requests
+# Phase 1B additions (installed, not yet in pyproject.toml):
+huggingface_hub, pandas, pyarrow, openpyxl
 # dev: pytest
 ```
 
