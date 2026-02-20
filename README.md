@@ -41,28 +41,48 @@ Most strain recommendation tools rely on crowdsourced labels ("relaxing", "energ
                                                  └─────────────────┘
 ```
 
+## Data Foundation (Phase 1)
+
+| Component | Count |
+|-----------|-------|
+| Strains | 24,853 (from Strain Tracker) |
+| Molecules | 23 (21 terpenes + 2 cannabinoids) |
+| SMILES structures | 28 (21 terpenes + 6 cannabinoids + 1 variant) |
+| Receptors | 6 (CB1, CB2, TRPV1, 5-HT1A, PPARgamma, GPR55) |
+| Binding affinities | 19 (literature-sourced Ki values) |
+| Strain compositions | 78,985 (terpene/cannabinoid percentages) |
+| Effects taxonomy | 2,179 (positive, negative, medical) |
+| Effect reports | 40,841 (strain-effect links) |
+| Knowledge graph | 19,260 nodes, 99,579 edges |
+
 ## Quick Start
 
 ```bash
 # Clone and install
-git clone https://github.com/yourusername/cannalchemy.git
+git clone https://github.com/2incertus/cannalchemy.git
 cd cannalchemy
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[all]"
+pip install -e ".[dev]"
 
-# Run the data pipeline
-cannalchemy --db-path data/processed/cannalchemy.db
+# Run the data pipeline (requires Strain Tracker DB)
+cannalchemy --db-path data/processed/cannalchemy.db --skip-pubchem
+
+# Run tests
+pytest tests/ -v -k "not network"
 ```
 
 ## Status
 
-**Phase 1: Data Foundation** (in progress)
-- [ ] SQLite schema and data models
-- [ ] Strain Tracker import (25K+ strains)
-- [ ] PubChem molecular data enrichment
-- [ ] ChEMBL receptor binding data
-- [ ] NetworkX knowledge graph
-- [ ] Exploratory analysis notebooks
+**Phase 1: Data Foundation** (complete)
+- [x] SQLite schema (9 tables, indexed)
+- [x] Strain Tracker import (24,853 strains)
+- [x] PubChem molecular data (28 SMILES cached, API fallback)
+- [x] ChEMBL receptor binding data (6 receptors, 19 affinities)
+- [x] NetworkX knowledge graph with pathway traversal
+- [x] Strain name normalization with fuzzy matching
+- [x] Data pipeline CLI
+- [x] Exploratory analysis notebook
+- [x] 24 tests passing
 
 **Future Phases:**
 - Phase 2: Effect prediction (XGBoost ensemble)
