@@ -167,34 +167,7 @@ def _predict_for_composition(
         pct = comp["percentage"] if isinstance(comp, dict) else comp[1]
         profile_dict[mol_name] = pct
 
-    row = {}
-    for feat in predictor.feature_names:
-        if feat in profile_dict:
-            row[feat] = profile_dict[feat]
-        elif feat == "is_indica":
-            row[feat] = 1.0 if strain_type == "indica" else 0.0
-        elif feat == "is_sativa":
-            row[feat] = 1.0 if strain_type == "sativa" else 0.0
-        elif feat == "is_hybrid":
-            row[feat] = 1.0 if strain_type == "hybrid" else 0.0
-        elif feat == "total_terpenes":
-            terp_keys = [k for k in profile_dict if k not in ("thc", "cbd", "cbn", "cbg", "thcv", "cbc")]
-            row[feat] = sum(profile_dict.get(k, 0) for k in terp_keys)
-        elif feat == "total_cannabinoids":
-            cann_keys = ["cbc", "cbd", "cbg", "cbn", "thc", "thcv"]
-            row[feat] = sum(profile_dict.get(k, 0) for k in cann_keys)
-        elif feat == "terpene_diversity":
-            terp_keys = [k for k in profile_dict if k not in ("thc", "cbd", "cbn", "cbg", "thcv", "cbc")]
-            row[feat] = sum(1 for k in terp_keys if profile_dict.get(k, 0) > 0)
-        elif feat == "dominant_terpene_pct":
-            terp_keys = [k for k in profile_dict if k not in ("thc", "cbd", "cbn", "cbg", "thcv", "cbc")]
-            row[feat] = max((profile_dict.get(k, 0) for k in terp_keys), default=0)
-        elif feat == "thc_cbd_ratio":
-            cbd_val = max(profile_dict.get("cbd", 0), 0.01)
-            row[feat] = profile_dict.get("thc", 0) / cbd_val
-        else:
-            row[feat] = 0.0
-
+    row = _build_feature_row(profile_dict, strain_type, predictor.feature_names)
     X_input = pd.DataFrame([row])
     probs = predictor.predict_proba(X_input)
 
@@ -464,6 +437,35 @@ def get_strain(name: str):
     }
 
 
+def _build_feature_row(profile_dict: dict, strain_type: str, feature_names: list[str]) -> dict:
+    """Build a single feature row dict from a composition dict."""
+    row = {}
+    cannabinoids = {"thc", "cbd", "cbn", "cbg", "thcv", "cbc"}
+    for feat in feature_names:
+        if feat in profile_dict:
+            row[feat] = profile_dict[feat]
+        elif feat == "is_indica":
+            row[feat] = 1.0 if strain_type == "indica" else 0.0
+        elif feat == "is_sativa":
+            row[feat] = 1.0 if strain_type == "sativa" else 0.0
+        elif feat == "is_hybrid":
+            row[feat] = 1.0 if strain_type == "hybrid" else 0.0
+        elif feat == "total_terpenes":
+            row[feat] = sum(v for k, v in profile_dict.items() if k not in cannabinoids)
+        elif feat == "total_cannabinoids":
+            row[feat] = sum(profile_dict.get(k, 0) for k in cannabinoids)
+        elif feat == "terpene_diversity":
+            row[feat] = sum(1 for k, v in profile_dict.items() if k not in cannabinoids and v > 0)
+        elif feat == "dominant_terpene_pct":
+            terp_vals = [v for k, v in profile_dict.items() if k not in cannabinoids]
+            row[feat] = max(terp_vals, default=0)
+        elif feat == "thc_cbd_ratio":
+            row[feat] = profile_dict.get("thc", 0) / max(profile_dict.get("cbd", 0), 0.01)
+        else:
+            row[feat] = 0.0
+    return row
+
+
 @app.post("/match")
 def match_strains(request: MatchRequest):
     """Find strains whose predicted effects best match desired effects."""
@@ -482,7 +484,9 @@ def match_strains(request: MatchRequest):
         params,
     ).fetchall()
 
-    results = []
+    # Build one big DataFrame for batch prediction
+    strain_meta = []  # (name, strain_type, compositions_list)
+    feature_rows = []
     for row in rows:
         sid = row["id"]
         comps = conn.execute(
@@ -492,31 +496,47 @@ def match_strains(request: MatchRequest):
             (sid,),
         ).fetchall()
 
+        profile_dict = {c["molecule"]: c["percentage"] for c in comps}
         compositions = [
             {"molecule": c["molecule"], "percentage": c["percentage"], "type": c["type"]}
             for c in comps
         ]
 
-        try:
-            effects = _predict_for_composition(
-                compositions, row["strain_type"], predictor
-            )
-        except Exception:
-            continue
+        feat_row = _build_feature_row(profile_dict, row["strain_type"], predictor.feature_names)
+        feature_rows.append(feat_row)
+        strain_meta.append((row["name"], row["strain_type"], compositions))
 
-        # Compute match score = average probability of requested effects
-        effect_probs = {e["name"]: e["probability"] for e in effects}
-        matching_probs = [effect_probs.get(eff, 0) for eff in request.effects]
+    if not feature_rows:
+        return {"strains": [], "count": 0}
+
+    # Batch predict all at once
+    X_batch = pd.DataFrame(feature_rows)
+    probs_df = predictor.predict_proba(X_batch)
+
+    # Score and rank
+    results = []
+    for i, (name, strain_type, compositions) in enumerate(strain_meta):
+        matching_probs = [float(probs_df.iloc[i].get(eff, 0)) for eff in request.effects]
         score = sum(matching_probs) / len(matching_probs) if matching_probs else 0
 
-        top_effects = [e for e in effects if e["probability"] >= 0.3][:5]
+        top_effects = []
+        for effect_name in probs_df.columns:
+            p = float(probs_df.iloc[i][effect_name])
+            if p >= 0.3:
+                top_effects.append({
+                    "name": effect_name,
+                    "category": EFFECT_CATEGORIES.get(effect_name, "unknown"),
+                    "probability": round(p, 3),
+                    "predicted": p >= 0.5,
+                })
+        top_effects.sort(key=lambda e: e["probability"], reverse=True)
 
         results.append({
-            "name": row["name"],
-            "strain_type": row["strain_type"],
+            "name": name,
+            "strain_type": strain_type,
             "score": round(score, 3),
             "compositions": compositions,
-            "top_effects": top_effects,
+            "top_effects": top_effects[:5],
         })
 
     results.sort(key=lambda x: x["score"], reverse=True)
