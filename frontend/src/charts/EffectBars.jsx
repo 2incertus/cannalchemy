@@ -9,6 +9,12 @@ const CATEGORY_COLORS = {
 
 const CATEGORY_ORDER = { positive: 0, medical: 1, negative: 2, unknown: 3 };
 
+const CONFIDENCE_STYLES = {
+  high: { label: "H", color: "var(--green, #6b9e6b)", title: "High confidence (AUC ≥ 0.85)" },
+  medium: { label: "M", color: "var(--gold-dim)", title: "Medium confidence (AUC 0.75–0.85)" },
+  low: { label: "L", color: "var(--cream-faint)", title: "Low confidence (AUC < 0.75)" },
+};
+
 /**
  * EffectBars — horizontal bar chart for predicted effect probabilities.
  *
@@ -167,6 +173,31 @@ export default function EffectBars({
                 >
                   {pct}%
                 </span>
+
+                {/* Confidence badge */}
+                {!compact && effect.confidence && (() => {
+                  const conf = CONFIDENCE_STYLES[effect.confidence] || CONFIDENCE_STYLES.medium;
+                  return (
+                    <span
+                      title={conf.title}
+                      style={{
+                        width: 16,
+                        height: 16,
+                        borderRadius: "50%",
+                        border: `1px solid ${conf.color}`,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "8px",
+                        fontFamily: "var(--font-data)",
+                        color: conf.color,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {conf.label}
+                    </span>
+                  );
+                })()}
               </div>
 
               {/* Expanded detail (non-compact only) */}
@@ -189,6 +220,14 @@ export default function EffectBars({
                   {effect.predicted && (
                     <span style={{ color, marginLeft: 8 }}>
                       ● Predicted
+                    </span>
+                  )}
+                  {effect.confidence && (
+                    <span style={{
+                      marginLeft: 8,
+                      color: (CONFIDENCE_STYLES[effect.confidence] || CONFIDENCE_STYLES.medium).color,
+                    }}>
+                      ● {effect.confidence === "high" ? "High" : effect.confidence === "medium" ? "Medium" : "Low"} model confidence
                     </span>
                   )}
                 </div>

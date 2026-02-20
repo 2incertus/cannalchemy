@@ -218,6 +218,7 @@ class EffectPrediction(BaseModel):
     category: str
     probability: float
     predicted: bool
+    confidence: str = "medium"  # high/medium/low based on model AUC
 
 
 class PredictionResponse(BaseModel):
@@ -241,6 +242,16 @@ try:
     EFFECT_CATEGORIES = {e["name"]: e["category"] for e in CANONICAL_EFFECTS}
 except ImportError:
     pass
+
+
+def _confidence_label(effect_name: str, predictor: EffectPredictor) -> str:
+    """Return 'high', 'medium', or 'low' based on model AUC for this effect."""
+    auc = predictor.eval_results.get(effect_name, {}).get("roc_auc", 0)
+    if auc >= 0.85:
+        return "high"
+    elif auc >= 0.75:
+        return "medium"
+    return "low"
 
 
 # --- Helper: build prediction from composition dict ---
@@ -267,6 +278,7 @@ def _predict_for_composition(
             "category": EFFECT_CATEGORIES.get(effect_name, "unknown"),
             "probability": round(prob, 3),
             "predicted": prob >= 0.5,
+            "confidence": _confidence_label(effect_name, predictor),
         })
     effects.sort(key=lambda e: e["probability"], reverse=True)
     return effects
@@ -343,6 +355,7 @@ def predict_effects(
                 category=EFFECT_CATEGORIES.get(effect_name, "unknown"),
                 probability=round(prob, 3),
                 predicted=prob >= 0.5,
+                confidence=_confidence_label(effect_name, predictor),
             ))
 
     effects.sort(key=lambda e: e.probability, reverse=True)
@@ -565,6 +578,7 @@ def match_strains(request: MatchRequest):
             _prediction_cache = _build_prediction_cache()
             _cache_ready.set()
 
+    predictor = _get_predictor()
     results = []
     for sid, (name, strain_type, compositions, probs) in _prediction_cache.items():
         if request.type and request.type != "any" and strain_type != request.type:
@@ -572,7 +586,6 @@ def match_strains(request: MatchRequest):
 
         matching_probs = [probs.get(eff, 0) for eff in request.effects]
         score = sum(matching_probs) / len(matching_probs) if matching_probs else 0
-
         top_effects = []
         for effect_name, p in probs.items():
             if p >= 0.3:
@@ -581,6 +594,7 @@ def match_strains(request: MatchRequest):
                     "category": EFFECT_CATEGORIES.get(effect_name, "unknown"),
                     "probability": round(p, 3),
                     "predicted": p >= 0.5,
+                    "confidence": _confidence_label(effect_name, predictor),
                 })
         top_effects.sort(key=lambda e: e["probability"], reverse=True)
 
