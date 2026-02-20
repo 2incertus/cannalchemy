@@ -61,21 +61,21 @@ test.describe("Navigation", () => {
     await page.goto("/");
     await page.locator("nav").getByRole("link", { name: "Compare" }).click();
     await expect(page).toHaveURL("/compare");
-    await expect(page.getByText("Compare — coming soon")).toBeVisible();
+    await expect(page.getByText("Compare Strains")).toBeVisible();
   });
 
   test("navigate to graph page", async ({ page }) => {
     await page.goto("/");
     await page.locator("nav").getByRole("link", { name: "Graph" }).click();
     await expect(page).toHaveURL("/graph");
-    await expect(page.getByText("Knowledge Graph — coming soon")).toBeVisible();
+    await expect(page.getByText("Knowledge Graph")).toBeVisible();
   });
 
   test("navigate to data quality page", async ({ page }) => {
     await page.goto("/");
     await page.locator("nav").getByRole("link", { name: "Data" }).click();
     await expect(page).toHaveURL("/quality");
-    await expect(page.getByText("Data Quality — coming soon")).toBeVisible();
+    await expect(page.getByText("Data Quality")).toBeVisible();
   });
 
   test("logo navigates home", async ({ page }) => {
