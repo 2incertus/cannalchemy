@@ -26,3 +26,12 @@ Thumbs.db
 # Models
 data/models/*.onnx
 data/models/*.joblib
+data/models/*/models.pkl
+
+# DB WAL files
+*.db-shm
+*.db-wal
+
+# Progress files
+.allbud_progress.json
+.leafly_reviews_progress.json

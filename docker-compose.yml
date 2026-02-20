@@ -1,0 +1,11 @@
+services:
+  cannalchemy:
+    build: .
+    container_name: cannalchemy
+    restart: unless-stopped
+    ports:
+      - "8422:8080"
+    volumes:
+      - /srv/appdata/cannalchemy/cannalchemy.db:/app/data/processed/cannalchemy.db:ro
+      - /srv/appdata/cannalchemy/models.pkl:/app/data/models/v2/models.pkl:ro
+      - /srv/appdata/cannalchemy/metadata.json:/app/data/models/v2/metadata.json:ro
