@@ -557,10 +557,13 @@ def _build_feature_row(profile_dict: dict, strain_type: str, feature_names: list
 @app.post("/match")
 def match_strains(request: MatchRequest):
     """Find strains whose predicted effects best match desired effects (uses pre-computed cache)."""
+    global _prediction_cache
     if _prediction_cache is None:
-        _cache_ready.wait(timeout=300)  # Wait for background build (up to 5 min)
+        # Wait briefly for background warmup, then fall back to synchronous build
+        _cache_ready.wait(timeout=10)
         if _prediction_cache is None:
-            raise HTTPException(status_code=503, detail="Prediction cache still warming up")
+            _prediction_cache = _build_prediction_cache()
+            _cache_ready.set()
 
     results = []
     for sid, (name, strain_type, compositions, probs) in _prediction_cache.items():

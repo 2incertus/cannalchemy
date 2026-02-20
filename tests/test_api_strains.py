@@ -103,6 +103,7 @@ def trained_predictor(tmp_path):
 @pytest.fixture
 def client(populated_db, trained_predictor, monkeypatch):
     """Create test client with populated DB and model."""
+    import threading
     import cannalchemy.api.app as api_module
 
     monkeypatch.setattr(api_module, "DEFAULT_MODEL_DIR", trained_predictor)
@@ -111,6 +112,8 @@ def client(populated_db, trained_predictor, monkeypatch):
     monkeypatch.setattr(api_module, "DB_PATH", populated_db)
     monkeypatch.setattr(api_module, "_db_conn", None)
     monkeypatch.setattr(api_module, "_knowledge_graph", None)
+    monkeypatch.setattr(api_module, "_prediction_cache", None)
+    monkeypatch.setattr(api_module, "_cache_ready", threading.Event())
     return TestClient(api_module.app)
 
 
