@@ -12,6 +12,9 @@ DB_TABLES = [
     "effect_reports",
     "lab_results",
     "data_sources",
+    "canonical_effects",
+    "effect_mappings",
+    "strain_aliases",
 ]
 
 SCHEMA_SQL = """
@@ -93,6 +96,7 @@ CREATE TABLE IF NOT EXISTS effect_reports (
     strain_id INTEGER NOT NULL REFERENCES strains(id),
     effect_id INTEGER NOT NULL REFERENCES effects(id),
     report_count INTEGER DEFAULT 0,
+    confidence REAL DEFAULT 1.0,
     source TEXT DEFAULT '',
     UNIQUE(strain_id, effect_id, source)
 );
@@ -123,6 +127,34 @@ CREATE TABLE IF NOT EXISTS data_sources (
     notes TEXT DEFAULT ''
 );
 
+-- Canonical effects (clean, pharmacology-grounded taxonomy)
+CREATE TABLE IF NOT EXISTS canonical_effects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    category TEXT CHECK(category IN ('positive', 'negative', 'medical')) NOT NULL,
+    description TEXT DEFAULT '',
+    synonyms TEXT DEFAULT '[]',
+    receptor_pathway TEXT DEFAULT ''
+);
+
+-- Effect name mappings (raw messy name -> canonical)
+CREATE TABLE IF NOT EXISTS effect_mappings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    raw_name TEXT UNIQUE NOT NULL,
+    canonical_id INTEGER REFERENCES canonical_effects(id),
+    confidence REAL DEFAULT 1.0,
+    method TEXT DEFAULT ''
+);
+
+-- Strain aliases for deduplication
+CREATE TABLE IF NOT EXISTS strain_aliases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alias_strain_id INTEGER NOT NULL REFERENCES strains(id),
+    canonical_strain_id INTEGER NOT NULL REFERENCES strains(id),
+    match_score REAL DEFAULT 0.0,
+    UNIQUE(alias_strain_id)
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_strain_compositions_strain ON strain_compositions(strain_id);
 CREATE INDEX IF NOT EXISTS idx_strain_compositions_molecule ON strain_compositions(molecule_id);
@@ -132,6 +164,8 @@ CREATE INDEX IF NOT EXISTS idx_effect_reports_strain ON effect_reports(strain_id
 CREATE INDEX IF NOT EXISTS idx_effect_reports_effect ON effect_reports(effect_id);
 CREATE INDEX IF NOT EXISTS idx_lab_results_strain ON lab_results(normalized_strain_name);
 CREATE INDEX IF NOT EXISTS idx_strains_normalized ON strains(normalized_name);
+CREATE INDEX IF NOT EXISTS idx_effect_mappings_canonical ON effect_mappings(canonical_id);
+CREATE INDEX IF NOT EXISTS idx_strain_aliases_canonical ON strain_aliases(canonical_strain_id);
 """
 
 
