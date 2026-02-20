@@ -141,16 +141,50 @@ Built the core data layer:
 
 ---
 
-## Phase 1C: Consumer Data (Leafly + AllBud)
+## Phase 1C: Consumer Data (Leafly + AllBud) — IN PROGRESS
 
-**Plan:** `docs/plans/2026-02-20-dataset-enrichment-design.md` (Section: Sub-phase 1C)
-**Status:** Design approved, implementation plan NOT yet written
+**Plan:** `docs/plans/2026-02-20-phase1c-consumer-data.md` (7 tasks)
+**Commits:** bead366 → e45a79f (6 commits, Tasks 1-6)
+**Tests:** 122 passing (45 new), 3 network-deselected
+**Status:** Tasks 1-6 COMPLETE, Task 7 (live DB import) IN PROGRESS
 
-**What it does:**
-- Scrape Leafly and AllBud strain pages for effect reports
-- Multi-source merge with confidence scoring
-- Expand effect reports to 100K+
-- Skip Reddit (too noisy)
+### Task-by-Task Results
+
+| Task | Commit | Files | Tests | Status |
+|------|--------|-------|-------|--------|
+| 1. Consumer Config & URL Builder | bead366 | consumer_config.py, test | 7 new | DONE |
+| 2. AllBud Scraper | 3f96837 | allbud_scraper.py, test, fixture | 11 new | DONE |
+| 3. Leafly Scraper | 00dd570 | leafly_scraper.py, test, fixture | 8 new | DONE |
+| 4. Consumer Effect Mapper | 7eb9212 | consumer_mapper.py, test | 8 new | DONE |
+| 5. Consumer Data Importer | 712dae2 | consumer_import.py, test | 5 new | DONE |
+| 6. Confidence + Pipeline CLI | e45a79f | confidence.py, consumer_pipeline.py, tests | 6 new | DONE |
+| 7. Run on Live DB | (operational) | — | — | IN PROGRESS |
+
+### Architecture
+
+- **AllBud scraper:** httpx + BeautifulSoup, parses flip-card panels (Effects, May Relieve, Flavors)
+- **Leafly scraper:** Firecrawl API → markdown, regex parsing for effects+votes, medical+percentages, terpenes
+- **Consumer mapper:** normalize → exact match → synonym match → fuzzy match (≥85) → unmapped
+- **Pipeline CLI:** `python -m cannalchemy.data.consumer_pipeline --db DB --source allbud|leafly --limit N`
+- **Confidence scoring:** base 0.4 + source bonus (+0.2/source) + vote bonus (0-0.2 log scale), max 1.0
+- **Resumability:** JSON checkpoint files (.allbud_progress.json, .leafly_progress.json)
+
+### Decisions Made
+
+1. **beautifulsoup4 added** as dependency (AllBud HTML parsing)
+2. **taxonomy.py updated:** added "lack-of-appetite" as 52nd canonical effect (distinct from medical "appetite-loss")
+3. **AllBud URL includes strain type** (indica/sativa/hybrid) — follows redirects if wrong
+4. **Firecrawl markdown preferred** over JSON extraction (1 credit vs 5 credits per page)
+5. **Effect mapping is near-1:1** — Leafly/AllBud names map directly after lowercase+hyphenation
+
+### Live DB Import Progress (Task 7)
+
+AllBud pipeline running against 11,700 strain-tracker priority strains (strains with compositions but no effects).
+
+**Pilot results (100 strains):**
+- Hit rate: ~14% (many obscure strain names, especially early alphabetically)
+- Effects per hit: ~9 on average
+- Full pipeline running in background, will update with final results
 
 **Target:** 15,000+ ML-ready strains (60%+)
 
@@ -187,6 +221,13 @@ Built the core data layer:
 | cannlytics_import.py | Lab results chunked import | 1B |
 | cannlytics_strain_match.py | Strain normalization + matching | 1B |
 | cannlytics_aggregate.py | Median aggregation to compositions | 1B |
+| consumer_config.py | URL builders + scrape config | 1C |
+| allbud_scraper.py | AllBud HTML parser (BeautifulSoup) | 1C |
+| leafly_scraper.py | Leafly markdown/JSON parser | 1C |
+| consumer_mapper.py | Effect name → canonical mapping | 1C |
+| consumer_import.py | Import consumer data to effect_reports | 1C |
+| confidence.py | Multi-source confidence scoring | 1C |
+| consumer_pipeline.py | Consumer scraping pipeline CLI | 1C |
 
 ### Test files (`tests/`)
 | File | Tests | Phase |
@@ -210,7 +251,14 @@ Built the core data layer:
 | test_cannlytics_import.py | 4 | 1B |
 | test_cannlytics_strain_match.py | 3 | 1B |
 | test_cannlytics_aggregate.py | 3 | 1B |
-| **Total** | **80 (77 run + 3 network)** | |
+| test_consumer_config.py | 7 | 1C |
+| test_allbud_scraper.py | 11 | 1C |
+| test_leafly_scraper.py | 8 | 1C |
+| test_consumer_mapper.py | 8 | 1C |
+| test_consumer_import.py | 5 | 1C |
+| test_confidence.py | 4 | 1C |
+| test_consumer_pipeline.py | 2 | 1C |
+| **Total** | **125 (122 run + 3 network)** | |
 
 ### Docs
 | File | Purpose |
@@ -220,6 +268,7 @@ Built the core data layer:
 | docs/plans/2026-02-20-dataset-enrichment-design.md | 1A/1B/1C enrichment design (approved) |
 | docs/plans/2026-02-20-phase1a-data-cleaning.md | Phase 1A implementation plan (7 tasks) |
 | docs/plans/2026-02-20-phase1b-cannlytics-import.md | Phase 1B implementation plan (7 tasks) |
+| docs/plans/2026-02-20-phase1c-consumer-data.md | Phase 1C implementation plan (7 tasks) |
 | docs/SESSION-LOG.md | This file — cross-session tracking |
 
 ---
@@ -228,7 +277,7 @@ Built the core data layer:
 
 ```
 # pyproject.toml
-networkx, rapidfuzz, httpx, pandas, sqlalchemy, huggingface_hub, openpyxl
+networkx, rapidfuzz, httpx, pandas, sqlalchemy, huggingface_hub, openpyxl, beautifulsoup4
 # dev: pytest
 ```
 
