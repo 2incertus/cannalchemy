@@ -40,7 +40,7 @@ export default function StrainDetail() {
     return (
       <div className="page" style={{ maxWidth: 1000, margin: "0 auto", padding: "80px 24px" }}>
         <div className="skeleton" style={{ height: 40, width: 300, marginBottom: 24 }} />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+        <div className="detail-grid">
           <div className="skeleton" style={{ height: 350 }} />
           <div className="skeleton" style={{ height: 350 }} />
         </div>
@@ -110,14 +110,7 @@ export default function StrainDetail() {
       </div>
 
       {/* Two-column grid: Radar + Cannabinoids | Effects */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-          gap: 24,
-          marginBottom: 32,
-        }}
-      >
+      <div className="detail-grid">
         {/* Left: Terpene Radar + Cannabinoid bars */}
         <div className="card" style={{ padding: 24 }}>
           <h2

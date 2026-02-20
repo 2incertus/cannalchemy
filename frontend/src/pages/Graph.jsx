@@ -154,21 +154,9 @@ export default function Graph() {
   const toggleFilter = (type) => setFilters((f) => ({ ...f, [type]: !f[type] }));
 
   return (
-    <div className="page" style={{ display: "flex", height: "calc(100vh - 64px)" }}>
+    <div className="page graph-layout">
       {/* Sidebar */}
-      <div
-        style={{
-          width: 280,
-          flexShrink: 0,
-          padding: "24px 16px",
-          borderRight: "1px solid var(--border)",
-          background: "var(--bg-void)",
-          overflowY: "auto",
-          display: "flex",
-          flexDirection: "column",
-          gap: 20,
-        }}
-      >
+      <div className="graph-sidebar">
         <h2 className="font-display" style={{ fontSize: "1.1rem", color: "var(--gold)" }}>
           Knowledge Graph
         </h2>

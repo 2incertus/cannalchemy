@@ -245,7 +245,7 @@ export default function Compare() {
           </section>
 
           {/* Side-by-side effects */}
-          <section style={{ display: "grid", gridTemplateColumns: `repeat(${strains.length}, 1fr)`, gap: 16, marginBottom: 24 }}>
+          <section className="compare-effects-grid" style={{ "--cols": strains.length, marginBottom: 24 }}>
             {strains.map((s, i) => (
               <div key={s.name} className="card" style={{ padding: 20 }}>
                 <h3 className="font-display" style={{ color: COLORS[i], fontSize: "1rem", marginBottom: 12 }}>

@@ -227,13 +227,13 @@ export default function Explorer() {
       {/* Results */}
       <section>
         {loading ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 16 }}>
+          <div className="strain-grid">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="skeleton" style={{ height: 120, borderRadius: 8 }} />
             ))}
           </div>
         ) : results.length > 0 ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 16 }}>
+          <div className="strain-grid">
             {results.map((strain, i) => (
               <StrainCard
                 key={strain.name}
