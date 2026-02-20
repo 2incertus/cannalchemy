@@ -27,3 +27,8 @@ all = ["cannalchemy[chemistry,ml,api,notebooks,dev]"]
 
 [project.scripts]
 cannalchemy = "cannalchemy.data.pipeline:main"
+
+[tool.pytest.ini_options]
+markers = [
+    "network: marks tests that require network access (deselect with '-k not network')",
+]
