@@ -1,6 +1,6 @@
 """Canonical effects taxonomy with pharmacology-grounded descriptions.
 
-Defines 51 canonical effects across three categories (positive, negative, medical),
+Defines 52 canonical effects across three categories (positive, negative, medical),
 each with receptor pathway information and synonym mappings for normalizing
 messy effect names from various data sources.
 """
@@ -188,7 +188,7 @@ CANONICAL_EFFECTS: List[Dict[str, Any]] = [
     },
 
     # =========================================================================
-    # NEGATIVE EFFECTS (12)
+    # NEGATIVE EFFECTS (13)
     # =========================================================================
     {
         "name": "dry-mouth",
@@ -297,6 +297,15 @@ CANONICAL_EFFECTS: List[Dict[str, Any]] = [
                        "reactivity to negative stimuli.",
         "synonyms": ["irritability", "cranky", "agitated", "short-tempered", "grumpy"],
         "receptor_pathway": "CB1, GABA-A, amygdala",
+    },
+    {
+        "name": "lack-of-appetite",
+        "category": "negative",
+        "description": "Appetite suppression as an unwanted side effect, mediated by THCV "
+                       "CB1 antagonism or high-dose CB1 desensitization reducing hunger "
+                       "signaling in the hypothalamus.",
+        "synonyms": ["appetite-loss-negative", "no-appetite", "appetite-suppression"],
+        "receptor_pathway": "CB1, hypothalamic, ghrelin",
     },
 
     # =========================================================================
