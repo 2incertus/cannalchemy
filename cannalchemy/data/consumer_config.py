@@ -1,5 +1,24 @@
 """Consumer site scraping configuration and URL builders for Leafly/AllBud."""
+import os
 import re
+
+
+def _load_firecrawl_key() -> str:
+    """Load Firecrawl API key from env var or Strain Tracker .env file."""
+    key = os.environ.get("FIRECRAWL_API_KEY", "")
+    if key:
+        return key
+    st_env = "/home/ubuntu/docker/strain-tracker/.env"
+    try:
+        with open(st_env) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("FIRECRAWL_API_KEY="):
+                    return line.split("=", 1)[1].strip().strip("'\"")
+    except FileNotFoundError:
+        pass
+    return ""
+
 
 SCRAPE_CONFIG = {
     "rate_limit": 1.0,
@@ -7,6 +26,7 @@ SCRAPE_CONFIG = {
     "retry_delay": 5.0,
     "timeout": 30.0,
     "firecrawl_api_url": "https://api.firecrawl.dev/v1",
+    "firecrawl_api_key": _load_firecrawl_key(),
     "user_agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
