@@ -75,18 +75,18 @@ def _get_db() -> sqlite3.Connection:
     global _db_conn
     if _db_conn is None:
         _db_conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        _db_conn.row_factory = sqlite3.Row
+    _db_conn.row_factory = sqlite3.Row  # Always restore (graph builder clears it)
     return _db_conn
 
 
 def _get_graph() -> nx.DiGraph:
     global _knowledge_graph
     if _knowledge_graph is None:
-        conn = _get_db()
-        # Temporarily remove row_factory for graph builder (expects tuples)
-        conn.row_factory = None
-        _knowledge_graph = build_knowledge_graph(conn)
-        conn.row_factory = sqlite3.Row
+        # Use a separate connection — graph builder expects tuples (no row_factory)
+        # and sharing the main conn causes concurrency issues with other endpoints
+        graph_conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        _knowledge_graph = build_knowledge_graph(graph_conn)
+        graph_conn.close()
     return _knowledge_graph
 
 

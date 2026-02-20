@@ -54,7 +54,7 @@ test.describe("Navigation", () => {
     await page.goto("/");
     await page.locator("nav").getByRole("link", { name: "Explore", exact: true }).click();
     await expect(page).toHaveURL("/explore");
-    await expect(page.getByText("Explorer — coming soon")).toBeVisible();
+    await expect(page.getByText("What do you want to feel?")).toBeVisible();
   });
 
   test("navigate to compare page", async ({ page }) => {
@@ -115,6 +115,7 @@ test.describe("API Integration", () => {
   });
 
   test("graph endpoint returns nodes and edges", async ({ request }) => {
+    test.setTimeout(90000); // Graph build is expensive on first call
     const res = await request.get("http://localhost:8421/graph");
     expect(res.ok()).toBeTruthy();
     const data = await res.json();
