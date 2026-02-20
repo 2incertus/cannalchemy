@@ -326,6 +326,80 @@ Cleaned strain-tracker effect labels:
 
 ---
 
+## Phase 3: Visualization + UI — COMPLETE
+
+**Plan:** `docs/plans/2026-02-20-phase3-implementation.md` (14 tasks)
+**Commits:** 8398874 → 9868de2 (9 commits on `worktree-phase3-ui` branch)
+**E2E Tests:** 24 passing (Playwright, Chromium)
+**Design:** "The Apothecary Lab" — dark botanical science aesthetic
+
+### Stack
+
+- **Frontend:** React 19, Vite 7, Tailwind CSS v4, D3.js 7, Recharts 3
+- **Backend:** FastAPI with XGBoost prediction cache
+- **Docker:** Multi-stage build (Node.js → Python + nginx + supervisord)
+- **Port:** 8422 (maps to 8080 inside container)
+
+### Pages Built (6)
+
+| Page | Route | Key Features |
+|------|-------|-------------|
+| Landing | `/` | Animated SVG radar, feature cards with IntersectionObserver, live stats |
+| Explorer | `/explore` | Effect picker with categories, type filters, strain cards, match search |
+| Strain Detail | `/strain/:name` | Terpene radar, effect bars, pathway diagram (D3 force-directed) |
+| Compare | `/compare` | Side-by-side strain comparison with overlaid radars |
+| Knowledge Graph | `/graph` | Interactive D3 force-directed graph, node detail panel |
+| Data Quality | `/quality` | Bar charts for AUC, effect distribution, data sources |
+
+### Components Built (8)
+
+| Component | Purpose |
+|-----------|---------|
+| TerpeneRadar | SVG radar chart with animated data polygons |
+| EffectBars | Horizontal probability bars with category colors |
+| StrainCard | Card with type badge, compositions, top effects |
+| EffectChip | Toggle buttons for effect selection (positive/negative/medical) |
+| TypeBadge | Colored pill for indica/sativa/hybrid |
+| PathwayDiagram | D3 force-directed molecule→receptor pathway graph |
+| HeroRadar | Landing page animated radar with pulsing effects |
+| Navbar | Fixed nav with active state highlighting |
+
+### API Endpoints Added (Phase 3)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/strains` | GET | Search/list strains with compositions |
+| `/strains/{name}` | GET | Full strain profile + predictions + pathways |
+| `/match` | POST | Find strains matching desired effects |
+| `/graph` | GET | Knowledge graph nodes and edges |
+| `/graph/{node_id}` | GET | Subgraph centered on a node |
+| `/stats` | GET | Data quality statistics |
+
+### Performance Optimizations
+
+- **Prediction cache:** Pre-computes all ML predictions at startup in background thread
+- **threading.Event:** Match endpoint waits for cache instead of double-building
+- **Single JOIN query:** Eliminated N+1 queries for strain compositions
+- **Batch prediction:** XGBoost predicts 6,553 strains in one `predict_proba` call
+- **Result:** Match endpoint responds in <50ms after cache warm (was 5+ min timeout)
+
+### Docker Deployment
+
+- Multi-stage Dockerfile: `node:22-alpine` (frontend) → `python:3.12-slim` (API + nginx)
+- supervisord runs uvicorn (8421) + nginx (8080) in single container
+- Production data mounted read-only from `/srv/appdata/cannalchemy/`
+- nginx: SPA fallback, API proxy, gzip, 1-year static asset cache
+
+### Key Decisions
+
+1. **Tailwind v4 (CSS-first):** No `tailwind.config.js`, uses `@theme` in CSS
+2. **D3 + React integration:** D3 renders SVG inside `useEffect`, React manages state
+3. **Recharts for bar charts:** Simpler than raw D3 for standard chart types
+4. **Background warmup:** Entire model/graph/cache loads async — API starts instantly
+5. **Production DB scale:** 67,477 strains, 6,553 ML-ready — much larger than dev fixtures
+
+---
+
 ## File Inventory
 
 ### ML modules (`cannalchemy/models/`)
@@ -337,7 +411,7 @@ Cleaned strain-tracker effect labels:
 ### API modules (`cannalchemy/api/`)
 | File | Purpose | Phase |
 |------|---------|-------|
-| app.py | FastAPI prediction API (predict, effects, features, health) | 2 |
+| app.py | FastAPI API (predict, effects, features, health, strains, match, graph, stats) | 2 + 3 |
 
 ### Source modules (`cannalchemy/data/`)
 | File | Purpose | Phase |
@@ -369,6 +443,33 @@ Cleaned strain-tracker effect labels:
 | consumer_pipeline.py | Consumer scraping pipeline CLI | 1C |
 | review_extractor.py | Regex + LLM effect extraction from review text | 1C.2 |
 | review_pipeline.py | Review extraction pipeline CLI | 1C.2 |
+
+### Frontend (`frontend/`)
+| File | Purpose | Phase |
+|------|---------|-------|
+| src/pages/Landing.jsx | Landing page with hero radar, feature cards, stats | 3 |
+| src/pages/Explorer.jsx | Effect picker, strain search, match results | 3 |
+| src/pages/StrainDetail.jsx | Full strain profile with predictions/pathways | 3 |
+| src/pages/Compare.jsx | Side-by-side strain comparison | 3 |
+| src/pages/Graph.jsx | Interactive knowledge graph visualization | 3 |
+| src/pages/Quality.jsx | Data quality dashboard with charts | 3 |
+| src/charts/TerpeneRadar.jsx | SVG radar chart for terpene profiles | 3 |
+| src/charts/EffectBars.jsx | Horizontal probability bar chart | 3 |
+| src/charts/HeroRadar.jsx | Animated landing page radar | 3 |
+| src/charts/PathwayDiagram.jsx | D3 force-directed pathway graph | 3 |
+| src/components/StrainCard.jsx | Strain card with compositions/effects | 3 |
+| src/components/EffectChip.jsx | Toggleable effect selection button | 3 |
+| src/components/TypeBadge.jsx | Colored strain type indicator | 3 |
+| src/components/Navbar.jsx | Navigation bar | 3 |
+| src/lib/api.js | API client functions | 3 |
+| e2e/smoke.spec.js | Landing, navigation, API integration tests | 3 |
+| e2e/explorer.spec.js | Explorer, strain detail tests | 3 |
+
+### Deploy (`deploy/`)
+| File | Purpose | Phase |
+|------|---------|-------|
+| nginx.conf | SPA routing + API proxy + static cache | 3 |
+| supervisord.conf | Process manager for uvicorn + nginx | 3 |
 
 ### Test files (`tests/`)
 | File | Tests | Phase |
@@ -404,7 +505,8 @@ Cleaned strain-tracker effect labels:
 | test_dataset.py | 15 | 2 |
 | test_effect_predictor.py | 12 | 2 |
 | test_api.py | 8 | 2 |
-| **Total** | **182 (179 run + 3 network)** | |
+| **Total (pytest)** | **182 (179 run + 3 network)** | |
+| **E2E (Playwright)** | **24** | 3 |
 
 ### Docs
 | File | Purpose |
@@ -416,6 +518,8 @@ Cleaned strain-tracker effect labels:
 | docs/plans/2026-02-20-phase1b-cannlytics-import.md | Phase 1B implementation plan (7 tasks) |
 | docs/plans/2026-02-20-phase1c-consumer-data.md | Phase 1C implementation plan (7 tasks) |
 | docs/SESSION-LOG.md | This file — cross-session tracking |
+| docs/plans/2026-02-20-phase3-design.md | Phase 3 UI design — The Apothecary Lab |
+| docs/plans/2026-02-20-phase3-implementation.md | Phase 3 implementation plan (14 tasks) |
 
 ---
 
@@ -427,6 +531,10 @@ networkx, rapidfuzz, httpx, pandas, sqlalchemy, huggingface_hub, openpyxl, beaut
 # ml: scikit-learn, xgboost
 # api: fastapi, uvicorn
 # dev: pytest
+
+# frontend (package.json)
+react 19, react-dom, react-router-dom 7, d3 7, recharts 3
+# dev: vite 7, @vitejs/plugin-react, tailwindcss 4, @playwright/test
 ```
 
 ### Trained models (`data/models/`)
