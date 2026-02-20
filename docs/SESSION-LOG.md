@@ -84,48 +84,60 @@ Built the core data layer:
 
 ---
 
-## Phase 1B: Cannlytics Lab Data Import (IN PROGRESS)
+## Phase 1B: Cannlytics Lab Data Import (COMPLETE)
 
 **Plan:** `docs/plans/2026-02-20-phase1b-cannlytics-import.md` (7 tasks)
-**Design doc:** `docs/plans/2026-02-20-dataset-enrichment-design.md` (Section: Sub-phase 1B)
-**Status:** Implementation plan written, execution starting
+**Commits:** 0c919ec → 377cb97 (7 commits)
+**Tests:** 77 passing (26 new), 3 network-deselected
 
-### Architecture Decisions (from interview)
+### Task-by-Task Results
 
-1. **Import scope:** Top 5 states + California → revised to NV, CA, MD, WA, MA (608K records). Skipping OR (no terpenes, no strain names) and MI (13 cols, useless).
-2. **Storage model:** Import into `lab_results` table only, aggregate separately into `strain_compositions`.
-3. **Unmatched strains:** Create new strains with `source='cannlytics'`.
-4. **Aggregation method:** Median per strain+molecule pair.
-5. **Data coexistence:** Keep both `measurement_type='reported'` (Strain Tracker) and `measurement_type='lab_tested'` (Cannlytics) in `strain_compositions`.
-6. **Molecule scope:** Map to existing 27 molecules only (no new ones).
+| Task | Commit | Files | Tests | Status |
+|------|--------|-------|-------|--------|
+| 1. Value Cleaner & Config | 0c919ec | cannlytics_config.py, test | 11 new | DONE |
+| 2. Download Pipeline | 42acc5f | cannlytics_download.py, test, pyproject.toml | 3 new | DONE |
+| 3. Per-State Extractors | a34025f | cannlytics_extract.py, test | 4 new | DONE |
+| 4. Lab Results Import | 3d5012e | cannlytics_import.py, test | 4 new | DONE |
+| 5. Strain Cross-Reference | 6f6a08c | cannlytics_strain_match.py, test | 3 new | DONE |
+| 6. Aggregation | e9b2ccb | cannlytics_aggregate.py, test | 3 new | DONE |
+| 7. Live DB Import | 377cb97 | fixes to config/extract/match | 1 new (extract) | DONE |
 
-### Data Exploration Findings
+### Plan vs Actual Results
 
-Schema varies **dramatically** per state:
+| Metric | Plan Target | Actual | Notes |
+|--------|-------------|--------|-------|
+| States imported | 5 (NV,CA,MD,WA,MA) | **4** (NV,CA,MD,WA) | MA dropped: results 100% NaN, no strain names |
+| Lab results | 200K+ | **1,394,000** | NV=994K, MD=185K, CA=134K, WA=82K |
+| Compositions created | 200K+ | **285,645** | lab_tested, median aggregation |
+| Strains enriched | — | **44,615** | 30K have lab terpene data |
+| New strains | — | **42,624** | source='cannlytics' |
+| Existing matched | — | **1,991** | Exact match to Strain Tracker |
+| Total strains | 30K+ | **67,477** | 24,853 original + 42,624 new |
+| New modules | 6 | **6** | config, download, extract, import, strain_match, aggregate |
+| Tests | 65+ | **80** (77 run + 3 network) | 26 new from Phase 1B |
 
-| State | Records | Strain Name | Terpene Data | Format | Priority |
-|-------|---------|-------------|--------------|--------|----------|
-| NV | 153K | product_name | Flat columns (88%, 13 terpenes) | CSV | HIGH |
-| CA | 72K | strain_name (sparse) + product_name | JSON results (157 analytes) | CSV | HIGH |
-| MD | 105K | strain_name (100%) | Only total_terpenes | CSV | MEDIUM |
-| WA | 203K | strain_name (84%) | JSON results (sparse terpenes) | XLSX | MEDIUM |
-| MA | 75K | No strain_name | JSON results (TBD) | CSV | MEDIUM |
-| OR | 197K | No strain_name | Only THC/CBD flat | CSV | SKIP |
-| MI | 90K | No strain_name | 13 cols total | CSV | SKIP |
+### Bugs Fixed During Execution
 
-Key technical issues:
-- Column names vary: `d_limonene` vs `limonene`, `alpha_ocimene` vs `ocimene`
-- Values can be: floats, "ND", "<LLOQ", sentinel values (1e-9, 1e-7)
-- NV uses flat columns; CA/WA/MA use nested JSON `results` field
-- WA uses .xlsx (requires openpyxl), rest are .csv
+1. **MA data useless:** Results field 100% NaN, no product_name, only delta_9_thc flat. Removed from STATE_CONFIGS.
+2. **WA Python dict notation:** Excel stores results as `[{'key': '9_thc', ...}]` (single quotes) not JSON. Added `ast.literal_eval` fallback in extractor.
+3. **strain_type CHECK constraint:** Plan had `strain_type=''` but schema requires `('indica', 'sativa', 'hybrid', 'unknown')`. Fixed to `'unknown'`.
+4. **Fuzzy matching too slow:** 42K names × 24K strains = O(1B) comparisons. Added `fuzzy=False` mode for exact-match-only + create new. Fuzzy matching deferred to post-processing.
 
-### Dependencies Added (not yet in pyproject.toml)
-- `huggingface_hub` — HuggingFace dataset download
-- `pandas` — CSV/XLSX reading and data manipulation
-- `pyarrow` — Parquet support (pandas optional dep)
-- `openpyxl` — Excel .xlsx support for WA data
+### Architecture Decisions
 
-**Target:** 200K+ lab-tested compositions, median 8-12 terpenes per strain
+1. **Import scope:** 4 states (not 5): NV, CA, MD, WA. MA dropped.
+2. **Storage model:** lab_results → aggregate → strain_compositions.
+3. **Strain matching:** Exact only for live import (fuzzy too slow at scale). Creates new strains.
+4. **Aggregation:** Median per strain+molecule, tagged `measurement_type='lab_tested'`.
+5. **Coexistence:** Both 'reported' (78K) and 'lab_tested' (286K) compositions kept.
+6. **Dependencies added to pyproject.toml:** huggingface_hub>=0.20, openpyxl>=3.1.
+
+### ML-Readiness After Phase 1B
+
+- ML-ready strains: 4,603 / 65,953 = **7%** (down from 19% post-1A)
+- Drop expected: denominator grew 3x from new Cannlytics strains with no effect reports
+- Key metric: **30,553 strains now have lab-tested terpene data**
+- Phase 1C (consumer data) will add effect reports to bring ML-readiness up
 
 ---
 
@@ -169,6 +181,12 @@ Key technical issues:
 | expand_molecules.py | Add CBN, CBG, CBC, THCV + bindings | 1A |
 | dedup_strains.py | Fuzzy strain deduplication | 1A |
 | cleaning.py | Phase 1A cleaning orchestrator | 1A |
+| cannlytics_config.py | Column mapping, value cleaning, state configs | 1B |
+| cannlytics_download.py | HuggingFace dataset download | 1B |
+| cannlytics_extract.py | Flat + JSON results extractors | 1B |
+| cannlytics_import.py | Lab results chunked import | 1B |
+| cannlytics_strain_match.py | Strain normalization + matching | 1B |
+| cannlytics_aggregate.py | Median aggregation to compositions | 1B |
 
 ### Test files (`tests/`)
 | File | Tests | Phase |
@@ -186,7 +204,13 @@ Key technical issues:
 | test_expand_molecules.py | 4 | 1A |
 | test_dedup_strains.py | 3 | 1A |
 | test_cleaning.py | 2 | 1A |
-| **Total** | **51 (48 run + 3 network)** | |
+| test_cannlytics_config.py | 11 | 1B |
+| test_cannlytics_download.py | 3 | 1B |
+| test_cannlytics_extract.py | 5 | 1B |
+| test_cannlytics_import.py | 4 | 1B |
+| test_cannlytics_strain_match.py | 3 | 1B |
+| test_cannlytics_aggregate.py | 3 | 1B |
+| **Total** | **80 (77 run + 3 network)** | |
 
 ### Docs
 | File | Purpose |
@@ -204,9 +228,7 @@ Key technical issues:
 
 ```
 # pyproject.toml
-networkx, rapidfuzz, httpx, requests
-# Phase 1B additions (installed, not yet in pyproject.toml):
-huggingface_hub, pandas, pyarrow, openpyxl
+networkx, rapidfuzz, httpx, pandas, sqlalchemy, huggingface_hub, openpyxl
 # dev: pytest
 ```
 
