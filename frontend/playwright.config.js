@@ -13,7 +13,7 @@ export default defineConfig({
     {
       command: "cd .. && .venv/bin/uvicorn cannalchemy.api.app:app --port 8421",
       port: 8421,
-      timeout: 15000,
+      timeout: 120000,
       reuseExistingServer: true,
     },
     {

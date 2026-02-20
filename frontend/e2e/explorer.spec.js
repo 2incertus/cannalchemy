@@ -6,7 +6,7 @@ test.describe("Explorer Page", () => {
     await expect(page.getByText("What do you want to feel?")).toBeVisible();
     // Has category headings
     await expect(page.getByText("Positive")).toBeVisible();
-    await expect(page.getByText("Medical")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Medical" })).toBeVisible();
   });
 
   test("shows popular strains by default", async ({ page }) => {

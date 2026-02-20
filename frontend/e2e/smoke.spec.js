@@ -75,7 +75,7 @@ test.describe("Navigation", () => {
     await page.goto("/");
     await page.locator("nav").getByRole("link", { name: "Data" }).click();
     await expect(page).toHaveURL("/quality");
-    await expect(page.getByText("Data Quality")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Data Quality" })).toBeVisible({ timeout: 15000 });
   });
 
   test("logo navigates home", async ({ page }) => {
@@ -126,7 +126,7 @@ test.describe("API Integration", () => {
   });
 
   test("match endpoint finds strains", async ({ request }) => {
-    test.setTimeout(90000); // match iterates all strains with model predictions
+    test.setTimeout(180000); // prediction cache build takes 45-90s on N100 with production DB
     const res = await request.post("http://localhost:8421/match", {
       data: { effects: ["relaxed"], type: "indica", limit: 3 },
     });

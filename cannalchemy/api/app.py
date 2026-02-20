@@ -19,6 +19,7 @@ Endpoints:
 """
 import logging
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -50,10 +51,97 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Globals (lazy-loaded) ---
+# --- Globals (lazy-loaded, warmed on startup) ---
 _predictor: EffectPredictor | None = None
 _db_conn: sqlite3.Connection | None = None
 _knowledge_graph: nx.DiGraph | None = None
+_prediction_cache: dict | None = None  # {strain_id: (name, type, compositions, probs_dict)}
+_cache_ready = threading.Event()  # Set when background cache build completes
+
+
+@app.on_event("startup")
+def _warmup():
+    """Start background warmup — API is available immediately, heavy loading happens async."""
+    threading.Thread(target=_warmup_all, daemon=True).start()
+    print("Warmup: started in background. API accepting requests.")
+
+
+def _warmup_all():
+    """Load model, graph, and prediction cache in background thread."""
+    import time
+    global _prediction_cache
+    try:
+        t0 = time.time()
+        print("Warmup: loading predictor model...")
+        _get_predictor()
+        print(f"Warmup: model loaded in {time.time()-t0:.1f}s")
+
+        t1 = time.time()
+        print("Warmup: building knowledge graph...")
+        _get_graph()
+        print(f"Warmup: graph built in {time.time()-t1:.1f}s")
+
+        t2 = time.time()
+        print("Warmup: building prediction cache...")
+        _prediction_cache = _build_prediction_cache()
+        print(f"Warmup: prediction cache ready ({len(_prediction_cache)} strains) in {time.time()-t2:.1f}s")
+
+        print(f"Warmup: all done in {time.time()-t0:.1f}s")
+    except Exception as e:
+        print(f"Warmup failed (non-fatal): {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        _cache_ready.set()  # Signal even on failure so endpoints don't hang
+
+
+def _build_prediction_cache() -> dict:
+    """Pre-compute predictions for all ML-ready strains."""
+    conn = _get_db()
+    predictor = _get_predictor()
+
+    all_comps = conn.execute("""
+        SELECT s.id, s.name, s.strain_type,
+               m.name as molecule, sc.percentage, m.molecule_type as type
+        FROM strains s
+        INNER JOIN strain_compositions sc ON sc.strain_id = s.id
+        INNER JOIN molecules m ON sc.molecule_id = m.id
+        WHERE s.id IN (
+            SELECT strain_id FROM strain_compositions
+            GROUP BY strain_id HAVING COUNT(DISTINCT molecule_id) >= 3
+        )
+        ORDER BY s.id
+    """).fetchall()
+
+    from itertools import groupby
+
+    strain_data = []
+    feature_rows = []
+    for sid, group in groupby(all_comps, key=lambda r: r["id"]):
+        rows = list(group)
+        name = rows[0]["name"]
+        strain_type = rows[0]["strain_type"]
+        profile_dict = {r["molecule"]: r["percentage"] for r in rows}
+        compositions = [
+            {"molecule": r["molecule"], "percentage": r["percentage"], "type": r["type"]}
+            for r in rows
+        ]
+        feat_row = _build_feature_row(profile_dict, strain_type, predictor.feature_names)
+        feature_rows.append(feat_row)
+        strain_data.append((sid, name, strain_type, compositions))
+
+    if not feature_rows:
+        return {}
+
+    X_batch = pd.DataFrame(feature_rows)
+    probs_df = predictor.predict_proba(X_batch)
+
+    cache = {}
+    for i, (sid, name, strain_type, compositions) in enumerate(strain_data):
+        probs = {col: float(probs_df.iloc[i][col]) for col in probs_df.columns}
+        cache[sid] = (name, strain_type, compositions, probs)
+
+    return cache
 
 
 def _get_predictor() -> EffectPredictor:
@@ -468,60 +556,22 @@ def _build_feature_row(profile_dict: dict, strain_type: str, feature_names: list
 
 @app.post("/match")
 def match_strains(request: MatchRequest):
-    """Find strains whose predicted effects best match desired effects."""
-    conn = _get_db()
-    predictor = _get_predictor()
+    """Find strains whose predicted effects best match desired effects (uses pre-computed cache)."""
+    if _prediction_cache is None:
+        _cache_ready.wait(timeout=300)  # Wait for background build (up to 5 min)
+        if _prediction_cache is None:
+            raise HTTPException(status_code=503, detail="Prediction cache still warming up")
 
-    # Get strains with compositions
-    where = "s.id IN (SELECT DISTINCT strain_id FROM strain_compositions)"
-    params = []
-    if request.type and request.type != "any":
-        where += " AND s.strain_type = ?"
-        params.append(request.type)
-
-    rows = conn.execute(
-        f"SELECT s.id, s.name, s.strain_type FROM strains s WHERE {where}",
-        params,
-    ).fetchall()
-
-    # Build one big DataFrame for batch prediction
-    strain_meta = []  # (name, strain_type, compositions_list)
-    feature_rows = []
-    for row in rows:
-        sid = row["id"]
-        comps = conn.execute(
-            "SELECT m.name as molecule, sc.percentage, m.molecule_type as type "
-            "FROM strain_compositions sc JOIN molecules m ON sc.molecule_id = m.id "
-            "WHERE sc.strain_id = ?",
-            (sid,),
-        ).fetchall()
-
-        profile_dict = {c["molecule"]: c["percentage"] for c in comps}
-        compositions = [
-            {"molecule": c["molecule"], "percentage": c["percentage"], "type": c["type"]}
-            for c in comps
-        ]
-
-        feat_row = _build_feature_row(profile_dict, row["strain_type"], predictor.feature_names)
-        feature_rows.append(feat_row)
-        strain_meta.append((row["name"], row["strain_type"], compositions))
-
-    if not feature_rows:
-        return {"strains": [], "count": 0}
-
-    # Batch predict all at once
-    X_batch = pd.DataFrame(feature_rows)
-    probs_df = predictor.predict_proba(X_batch)
-
-    # Score and rank
     results = []
-    for i, (name, strain_type, compositions) in enumerate(strain_meta):
-        matching_probs = [float(probs_df.iloc[i].get(eff, 0)) for eff in request.effects]
+    for sid, (name, strain_type, compositions, probs) in _prediction_cache.items():
+        if request.type and request.type != "any" and strain_type != request.type:
+            continue
+
+        matching_probs = [probs.get(eff, 0) for eff in request.effects]
         score = sum(matching_probs) / len(matching_probs) if matching_probs else 0
 
         top_effects = []
-        for effect_name in probs_df.columns:
-            p = float(probs_df.iloc[i][effect_name])
+        for effect_name, p in probs.items():
             if p >= 0.3:
                 top_effects.append({
                     "name": effect_name,
