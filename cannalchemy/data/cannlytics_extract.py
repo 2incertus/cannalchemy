@@ -1,4 +1,5 @@
 """Extract analyte measurements from Cannlytics data rows."""
+import ast
 import json
 import pandas as pd
 from cannalchemy.data.cannlytics_config import MOLECULE_COLUMN_MAP, clean_analyte_value
@@ -48,7 +49,11 @@ def extract_json_measurements(row: pd.Series) -> list[dict]:
     try:
         results = json.loads(results_str) if isinstance(results_str, str) else results_str
     except (json.JSONDecodeError, TypeError):
-        return []
+        # WA Excel stores Python dict notation (single quotes) instead of JSON
+        try:
+            results = ast.literal_eval(results_str) if isinstance(results_str, str) else []
+        except (ValueError, SyntaxError):
+            return []
 
     if not isinstance(results, list):
         return []

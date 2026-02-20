@@ -41,7 +41,7 @@ def test_state_configs_exist():
     assert "ca" in STATE_CONFIGS
     assert "md" in STATE_CONFIGS
     assert "wa" in STATE_CONFIGS
-    assert "ma" in STATE_CONFIGS
+    # MA skipped: results 100% NaN, no strain names, only THC flat column
 
 def test_state_config_has_required_fields():
     for state, cfg in STATE_CONFIGS.items():

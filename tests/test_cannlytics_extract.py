@@ -59,3 +59,16 @@ def test_extract_returns_unit():
     row = pd.Series({"product_name": "Test", "beta_myrcene": 0.5})
     measurements = extract_flat_measurements(row)
     assert measurements[0]["unit"] == "percent"
+
+def test_extract_json_python_dict_notation():
+    """WA-style Python dict notation (single quotes) instead of JSON."""
+    results_str = "[{'key': '9_thc', 'value': 22.5, 'units': 'percent'}, {'key': 'cbd', 'value': 0.3, 'units': 'percent'}]"
+    row = pd.Series({
+        "product_name": "Test Strain",
+        "results": results_str,
+    })
+    measurements = extract_json_measurements(row)
+    assert len(measurements) == 2
+    thc = next((m for m in measurements if m["molecule"] == "thc"), None)
+    assert thc is not None
+    assert thc["concentration"] == 22.5

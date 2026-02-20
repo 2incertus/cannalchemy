@@ -27,18 +27,22 @@ def normalize_lab_results(conn: sqlite3.Connection) -> int:
     return count
 
 
-def match_strains(conn: sqlite3.Connection, threshold: int = 90) -> dict:
+def match_strains(conn: sqlite3.Connection, threshold: int = 90, fuzzy: bool = True) -> dict:
     """Match lab result strain names to existing strains or create new ones.
+
+    For large datasets (>1000 distinct names), set fuzzy=False to skip
+    the O(n*m) fuzzy matching and only do exact matching + creation.
+    Fuzzy matching is too slow for 40K+ names against 24K+ strains.
 
     Returns stats dict with matched, created, skipped counts.
     """
-    stats = {"matched": 0, "created": 0, "skipped": 0}
+    stats = {"matched": 0, "created": 0, "skipped": 0, "fuzzy_matched": 0}
 
     existing = conn.execute(
         "SELECT id, normalized_name FROM strains"
     ).fetchall()
     existing_map = {row[1]: row[0] for row in existing}
-    existing_names = list(existing_map.keys())
+    existing_names = list(existing_map.keys()) if fuzzy else []
 
     lab_names = conn.execute(
         "SELECT DISTINCT normalized_strain_name FROM lab_results "
@@ -46,18 +50,19 @@ def match_strains(conn: sqlite3.Connection, threshold: int = 90) -> dict:
     ).fetchall()
     lab_names = [row[0] for row in lab_names]
 
-    for lab_name in lab_names:
+    for i, lab_name in enumerate(lab_names):
         if lab_name in existing_map:
             stats["matched"] += 1
             continue
 
-        if existing_names:
+        if fuzzy and existing_names:
             match = process.extractOne(
                 lab_name, existing_names,
                 scorer=fuzz.ratio,
                 score_cutoff=threshold,
             )
             if match:
+                stats["fuzzy_matched"] += 1
                 stats["matched"] += 1
                 continue
 
@@ -68,11 +73,14 @@ def match_strains(conn: sqlite3.Connection, threshold: int = 90) -> dict:
         )
         if cur.rowcount == 1:
             stats["created"] += 1
-            new_id = cur.lastrowid
-            existing_map[lab_name] = new_id
-            existing_names.append(lab_name)
+            existing_map[lab_name] = cur.lastrowid
         else:
             stats["skipped"] += 1
+
+        if (i + 1) % 5000 == 0:
+            conn.commit()
+            print(f"  Progress: {i+1}/{len(lab_names)} "
+                  f"(matched={stats['matched']}, created={stats['created']})")
 
     conn.commit()
     return stats

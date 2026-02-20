@@ -71,14 +71,7 @@ STATE_CONFIGS = {
         "strain_field": "strain_name",
         "expected_records": 202812,
     },
-    "ma": {
-        "format": "json_results",
-        "file": "data/ma/ma-results-latest.csv",
-        "file_type": "csv",
-        "data_source": "JSON results field",
-        "strain_field": "product_name",
-        "expected_records": 75164,
-    },
+    # MA skipped: results field is 100% NaN, no product_name, only delta_9_thc flat column
 }
 
 
