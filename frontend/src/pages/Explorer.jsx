@@ -63,7 +63,7 @@ export default function Explorer() {
   };
 
   // Group effects by category
-  const positive = effects.filter((e) => e.category === "positive");
+  const positive = effects.filter((e) => e.category === "positive" && e.name !== "aroused");
   const medical = effects.filter((e) => e.category === "medical");
   const negative = effects.filter((e) => e.category === "negative");
 

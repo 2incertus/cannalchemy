@@ -446,8 +446,14 @@ def list_strains(
     where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
     rows = conn.execute(
-        f"SELECT s.id, s.name, s.strain_type, s.description "
-        f"FROM strains s WHERE {where_sql} ORDER BY s.name LIMIT ?",
+        f"""SELECT s.id, s.name, s.strain_type, s.description,
+                   COALESCE(SUM(er.report_count), 0) as popularity
+            FROM strains s
+            LEFT JOIN effect_reports er ON er.strain_id = s.id
+            WHERE {where_sql}
+            GROUP BY s.id
+            ORDER BY popularity DESC, s.name
+            LIMIT ?""",
         params + [limit],
     ).fetchall()
 
