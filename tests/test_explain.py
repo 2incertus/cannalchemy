@@ -180,3 +180,48 @@ class TestLLMClientHTTP:
         mock_response.json.return_value = {"content": [{"type": "text", "text": ""}]}
         with patch("cannalchemy.explain.llm.httpx.post", return_value=mock_response):
             assert client._call_primary("test") is None
+
+
+from cannalchemy.explain.cache import ExplanationCache
+from cannalchemy.data.schema import init_db
+
+
+class TestExplanationCache:
+    @pytest.fixture
+    def cache(self, tmp_path):
+        db_path = str(tmp_path / "test.db")
+        init_db(db_path)
+        return ExplanationCache(db_path)
+
+    def test_miss_returns_none(self, cache):
+        result = cache.get(strain_id=1, explanation_type="full", model_version="v2")
+        assert result is None
+
+    def test_put_then_get(self, cache):
+        cache.put(
+            strain_id=1, explanation_type="full", model_version="v2",
+            content="Myrcene drives relaxation.", llm_provider="zai",
+        )
+        result = cache.get(strain_id=1, explanation_type="full", model_version="v2")
+        assert result["content"] == "Myrcene drives relaxation."
+        assert result["llm_provider"] == "zai"
+        assert result["cached"] is True
+
+    def test_different_model_version_misses(self, cache):
+        cache.put(
+            strain_id=1, explanation_type="full", model_version="v1",
+            content="Old explanation.", llm_provider="zai",
+        )
+        result = cache.get(strain_id=1, explanation_type="full", model_version="v2")
+        assert result is None
+
+    def test_summary_and_full_independent(self, cache):
+        cache.put(strain_id=1, explanation_type="full", model_version="v2",
+                  content="Full text.", llm_provider="zai")
+        cache.put(strain_id=1, explanation_type="summary", model_version="v2",
+                  content="Short.", llm_provider="ollama")
+        full = cache.get(strain_id=1, explanation_type="full", model_version="v2")
+        summary = cache.get(strain_id=1, explanation_type="summary", model_version="v2")
+        assert full["content"] == "Full text."
+        assert summary["content"] == "Short."
+        assert summary["llm_provider"] == "ollama"
