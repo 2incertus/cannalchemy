@@ -6,16 +6,17 @@ Usage:
     uvicorn cannalchemy.api.app:app --host 0.0.0.0 --port 8421
 
 Endpoints:
-    POST /predict          — Predict effects from a chemical profile
-    GET  /effects          — List available effects the model can predict
-    GET  /features         — List expected input features (molecules)
-    GET  /health           — Health check
-    GET  /strains          — Search/list strains with compositions
-    GET  /strains/{name}   — Full strain profile with predictions and pathways
-    POST /match            — Find strains matching desired effects
-    GET  /graph            — Knowledge graph nodes and edges
-    GET  /graph/{node_id}  — Subgraph centered on a node
-    GET  /stats            — Data quality statistics
+    POST /predict                — Predict effects from a chemical profile
+    GET  /effects                — List available effects the model can predict
+    GET  /features               — List expected input features (molecules)
+    GET  /health                 — Health check
+    GET  /strains                — Search/list strains with compositions
+    GET  /strains/{name}         — Full strain profile with predictions and pathways
+    GET  /strains/{name}/explain — LLM explanation for strain (cached)
+    POST /match                  — Find strains matching desired effects
+    GET  /graph                  — Knowledge graph nodes and edges
+    GET  /graph/{node_id}        — Subgraph centered on a node
+    GET  /stats                  — Data quality statistics
 """
 import logging
 import sqlite3
@@ -30,6 +31,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from cannalchemy.data.graph import build_knowledge_graph, get_molecule_pathways
+from cannalchemy.explain.cache import ExplanationCache
+from cannalchemy.explain.llm import LLMClient
 from cannalchemy.models.effect_predictor import EffectPredictor
 
 logger = logging.getLogger(__name__)
@@ -57,6 +60,8 @@ _db_conn: sqlite3.Connection | None = None
 _knowledge_graph: nx.DiGraph | None = None
 _prediction_cache: dict | None = None  # {strain_id: (name, type, compositions, probs_dict)}
 _cache_ready = threading.Event()  # Set when background cache build completes
+_llm_client: LLMClient | None = None
+_explanation_cache: ExplanationCache | None = None
 
 
 @app.on_event("startup")
@@ -69,7 +74,7 @@ def _warmup():
 def _warmup_all():
     """Load model, graph, and prediction cache in background thread."""
     import time
-    global _prediction_cache
+    global _prediction_cache, _llm_client, _explanation_cache
     try:
         t0 = time.time()
         print("Warmup: loading predictor model...")
@@ -80,6 +85,14 @@ def _warmup_all():
         print("Warmup: building knowledge graph...")
         _get_graph()
         print(f"Warmup: graph built in {time.time()-t1:.1f}s")
+
+        # Initialize LLM client + cache
+        _llm_client = LLMClient.from_env()
+        if _llm_client:
+            print("Warmup: LLM client configured (primary + fallback)")
+        else:
+            print("Warmup: LLM not configured (no CANNALCHEMY_LLM_PRIMARY_URL)")
+        _explanation_cache = ExplanationCache(DB_PATH)
 
         t2 = time.time()
         print("Warmup: building prediction cache...")
@@ -536,6 +549,76 @@ def get_strain(name: str):
             for p in pathways
         ],
     }
+
+
+def _get_model_version() -> str:
+    """Get current model version string for cache keying."""
+    return Path(DEFAULT_MODEL_DIR).name if Path(DEFAULT_MODEL_DIR).exists() else Path(FALLBACK_MODEL_DIR).name
+
+
+@app.get("/strains/{name}/explain")
+def explain_strain(name: str):
+    """Get LLM-generated explanation for a strain's predicted effects."""
+    conn = _get_db()
+    row = conn.execute(
+        "SELECT id, name, strain_type FROM strains WHERE name = ?", (name,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Strain '{name}' not found")
+
+    if not _llm_client:
+        return {"explanation": None, "provider": None, "cached": False}
+
+    strain_id = row["id"]
+    model_version = _get_model_version()
+
+    # Check cache
+    if _explanation_cache:
+        cached = _explanation_cache.get(strain_id, "full", model_version)
+        if cached:
+            return {
+                "explanation": cached["content"],
+                "provider": cached["llm_provider"],
+                "cached": True,
+            }
+
+    # Build strain data for prompt
+    comps = conn.execute(
+        "SELECT m.name as molecule, sc.percentage, m.molecule_type as type "
+        "FROM strain_compositions sc JOIN molecules m ON sc.molecule_id = m.id "
+        "WHERE sc.strain_id = ? ORDER BY sc.percentage DESC",
+        (strain_id,),
+    ).fetchall()
+    compositions = [{"molecule": c["molecule"], "percentage": c["percentage"], "type": c["type"]} for c in comps]
+
+    predicted_effects = []
+    try:
+        predictor = _get_predictor()
+        predicted_effects = _predict_for_composition(compositions, row["strain_type"], predictor)
+    except Exception:
+        pass
+
+    G = _get_graph()
+    pathways = []
+    for comp in compositions:
+        pathways.extend(get_molecule_pathways(G, comp["molecule"]))
+
+    strain_data = {
+        "name": row["name"],
+        "strain_type": row["strain_type"],
+        "compositions": compositions,
+        "predicted_effects": predicted_effects[:5],
+        "pathways": [
+            {"molecule": p["molecule"], "receptor": p["receptor"], "ki_nm": p.get("ki_nm")}
+            for p in pathways[:5]
+        ],
+    }
+
+    text, provider = _llm_client.explain_strain(strain_data)
+    if text and _explanation_cache:
+        _explanation_cache.put(strain_id, "full", model_version, text, provider)
+
+    return {"explanation": text, "provider": provider, "cached": False}
 
 
 def _build_feature_row(profile_dict: dict, strain_type: str, feature_names: list[str]) -> dict:
