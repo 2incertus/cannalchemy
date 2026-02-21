@@ -121,3 +121,62 @@ class TestLLMClientCalls:
         with patch.object(c, "_call_primary", return_value=None):
             text, provider = c.explain_strain(strain_data)
             assert text is None
+
+
+class TestLLMClientHTTP:
+    def test_primary_http_success(self, client):
+        """Test actual HTTP call format for Anthropic-compatible API."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "content": [{"type": "text", "text": "Myrcene drives relaxation via CB1."}]
+        }
+        with patch("cannalchemy.explain.llm.httpx.post", return_value=mock_response) as mock_post:
+            result = client._call_primary("test prompt")
+            assert result == "Myrcene drives relaxation via CB1."
+            call_kwargs = mock_post.call_args
+            assert call_kwargs[0][0] == "https://api.z.ai/api/anthropic/v1/messages"
+            assert call_kwargs[1]["headers"]["x-api-key"] == "test-key"
+            assert call_kwargs[1]["json"]["model"] == "glm-4.7"
+
+    def test_primary_http_timeout(self, client):
+        with patch("cannalchemy.explain.llm.httpx.post", side_effect=httpx.TimeoutException("timeout")):
+            result = client._call_primary("test")
+            assert result is None
+
+    def test_primary_http_429(self, client):
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        with patch("cannalchemy.explain.llm.httpx.post", return_value=mock_response):
+            result = client._call_primary("test")
+            assert result is None
+            assert client._rate_limited_until > time.time()
+
+    def test_fallback_http_success(self, client):
+        """Test Ollama API call format."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"response": "A relaxing indica."}
+        with patch("cannalchemy.explain.llm.httpx.post", return_value=mock_response) as mock_post:
+            result = client._call_fallback("test prompt")
+            assert result == "A relaxing indica."
+            call_kwargs = mock_post.call_args
+            assert "/api/generate" in call_kwargs[0][0]
+            assert call_kwargs[1]["json"]["model"] == "llama3.2"
+            assert call_kwargs[1]["json"]["stream"] is False
+
+    def test_fallback_http_timeout(self, client):
+        with patch("cannalchemy.explain.llm.httpx.post", side_effect=httpx.TimeoutException("timeout")):
+            result = client._call_fallback("test")
+            assert result is None
+
+    def test_empty_response_rejected(self, client):
+        """Empty or too-long responses return None."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"content": [{"type": "text", "text": ""}]}
+        with patch("cannalchemy.explain.llm.httpx.post", return_value=mock_response):
+            assert client._call_primary("test") is None
