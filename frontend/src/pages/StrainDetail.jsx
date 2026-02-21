@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
-import { fetchStrain, fetchStrains } from "../lib/api";
+import { fetchStrain, fetchStrains, fetchExplanation } from "../lib/api";
 import TerpeneRadar from "../charts/TerpeneRadar";
 import EffectBars from "../charts/EffectBars";
 import PathwayDiagram from "../charts/PathwayDiagram";
@@ -13,6 +13,8 @@ export default function StrainDetail() {
   const [similar, setSimilar] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [explanation, setExplanation] = useState(null);
+  const [explanationLoading, setExplanationLoading] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -20,6 +22,12 @@ export default function StrainDetail() {
     fetchStrain(name)
       .then((data) => {
         setStrain(data);
+        // Fetch explanation async (non-blocking)
+        setExplanationLoading(true);
+        fetchExplanation(name)
+          .then((expData) => setExplanation(expData))
+          .catch(() => setExplanation(null))
+          .finally(() => setExplanationLoading(false));
         // Fetch similar strains of same type
         return fetchStrains("", data.strain_type, 6);
       })
@@ -207,6 +215,41 @@ export default function StrainDetail() {
         </p>
         <PathwayDiagram pathways={pathways} effects={predictedEffectNames} height={400} />
       </div>
+
+      {/* AI Analysis */}
+      {(explanationLoading || (explanation && explanation.explanation)) && (
+        <div className="card animate-fade-in-up" style={{ padding: 24, marginBottom: 32 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <h2
+              className="font-display"
+              style={{ fontSize: "1.1rem", color: "var(--cream)", margin: 0 }}
+            >
+              AI Analysis
+            </h2>
+            {explanation?.provider && (
+              <span
+                className="font-data"
+                style={{
+                  fontSize: "10px",
+                  color: "var(--cream-faint)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 4,
+                  padding: "2px 6px",
+                }}
+              >
+                {explanation.provider.toUpperCase()}
+              </span>
+            )}
+          </div>
+          {explanationLoading ? (
+            <div className="skeleton" style={{ height: 60, borderRadius: 4 }} />
+          ) : (
+            <p style={{ color: "var(--cream-dim)", fontSize: "14px", lineHeight: 1.7, margin: 0 }}>
+              {explanation.explanation}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Similar strains */}
       {similar.length > 0 && (

@@ -82,6 +82,24 @@ export default function StrainCard({
           )}
         </div>
 
+        {/* AI summary line */}
+        {strain.summary && (
+          <p
+            style={{
+              margin: 0,
+              fontSize: "12px",
+              fontStyle: "italic",
+              color: "var(--cream-faint)",
+              lineHeight: 1.4,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {strain.summary}
+          </p>
+        )}
+
         {/* Effect bars (compact) */}
         {strain.top_effects && strain.top_effects.length > 0 && (
           <EffectBars effects={strain.top_effects} compact showThreshold={false} />

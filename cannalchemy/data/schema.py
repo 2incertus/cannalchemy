@@ -15,6 +15,7 @@ DB_TABLES = [
     "canonical_effects",
     "effect_mappings",
     "strain_aliases",
+    "strain_explanations",
 ]
 
 SCHEMA_SQL = """
@@ -153,6 +154,17 @@ CREATE TABLE IF NOT EXISTS strain_aliases (
     canonical_strain_id INTEGER NOT NULL REFERENCES strains(id),
     match_score REAL DEFAULT 0.0,
     UNIQUE(alias_strain_id)
+);
+
+-- LLM-generated strain explanations (cached)
+CREATE TABLE IF NOT EXISTS strain_explanations (
+    strain_id INTEGER NOT NULL,
+    explanation_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    model_version TEXT NOT NULL,
+    llm_provider TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (strain_id, explanation_type, model_version)
 );
 
 -- Indexes for performance

@@ -14,6 +14,7 @@ export default function Explorer() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showNegative, setShowNegative] = useState(false);
+  const [showSummaries, setShowSummaries] = useState(false);
 
   // Load available effects
   useEffect(() => {
@@ -28,7 +29,7 @@ export default function Explorer() {
     try {
       const typeFilter = selectedType === "all" ? "" : selectedType;
       if (selectedEffects.length > 0) {
-        const data = await matchEffects(selectedEffects, typeFilter, 24);
+        const data = await matchEffects(selectedEffects, typeFilter, 24, showSummaries);
         setResults(data.strains || []);
       } else {
         const data = await fetchStrains("", typeFilter, 12);
@@ -45,7 +46,7 @@ export default function Explorer() {
       setResults([]);
     }
     setLoading(false);
-  }, [selectedEffects, selectedType]);
+  }, [selectedEffects, selectedType, showSummaries]);
 
   useEffect(() => {
     search();
@@ -194,6 +195,27 @@ export default function Explorer() {
             </button>
           ))}
         </div>
+
+        {/* AI Summaries toggle */}
+        {selectedEffects.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowSummaries(!showSummaries)}
+            style={{
+              padding: "6px 12px",
+              borderRadius: "20px",
+              border: `1px solid ${showSummaries ? "var(--gold-dim)" : "var(--border)"}`,
+              background: showSummaries ? "rgba(212,168,67,0.08)" : "transparent",
+              color: showSummaries ? "var(--gold)" : "var(--cream-faint)",
+              fontSize: "12px",
+              fontFamily: "var(--font-body)",
+              cursor: "pointer",
+              transition: "all 150ms",
+            }}
+          >
+            {showSummaries ? "\u2726 " : ""}AI Summaries
+          </button>
+        )}
 
         {/* Selection summary */}
         {selectedEffects.length > 0 && (

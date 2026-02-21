@@ -548,4 +548,40 @@ react 19, react-dom, react-router-dom 7, d3 7, recharts 3
 - Endpoint: `https://api.z.ai/api/anthropic/v1/messages`
 - Model: `glm-4.7`
 - API key: stored in `~/config/n8n.env` as `ZAI_API_KEY`
-- Used for: LLM effect classification (Phase 1A Task 3)
+- Used for: LLM effect classification (Phase 1A Task 3), strain explanations (Phase 5)
+
+---
+
+## Phase 5: LLM Explanations (COMPLETE)
+
+**Branch:** `worktree-phase5-llm`
+**Tests:** 222 passing (27 new: 20 unit + 7 integration)
+
+Added pluggable LLM explanation layer that generates human-readable prose explaining why predicted effects occur at the molecular level.
+
+### What was built:
+- **`cannalchemy/explain/llm.py`** — LLMClient with Z.AI (Anthropic-compatible) primary + Ollama fallback, rate limit handling, prompt templates for full explanations and 1-line summaries
+- **`cannalchemy/explain/cache.py`** — ExplanationCache backed by `strain_explanations` SQLite table, keyed by (strain_id, type, model_version)
+- **`GET /strains/{name}/explain`** — Returns cached or freshly-generated explanation with provider tag
+- **`POST /match` `explain` flag** — Adds 1-line AI summaries to match results
+- **StrainDetail AI Analysis section** — Shows explanation with skeleton loader and provider badge, hidden if LLM unavailable
+- **Explorer AI Summaries toggle** — Pill button enables/disables 1-line summaries on strain cards
+- **Docker config** — `cannalchemy.env` for LLM credentials, `extra_hosts` for Ollama access, DB mount changed to read-write
+
+### Architecture:
+```
+Client request → /strains/{name}/explain
+  → Check SQLite cache (strain_id, "full", model_version)
+  → Cache hit: return cached content
+  → Cache miss: build strain_data → LLMClient._generate()
+    → Try Z.AI (Anthropic API) → 429? rate-limit 60s
+    → Fallback to Ollama (/api/generate)
+    → Cache result → return
+```
+
+### Environment variables:
+- `CANNALCHEMY_LLM_PRIMARY_URL` — Z.AI endpoint
+- `CANNALCHEMY_LLM_PRIMARY_MODEL` — glm-4.7
+- `CANNALCHEMY_LLM_PRIMARY_KEY` — API key
+- `CANNALCHEMY_LLM_FALLBACK_URL` — Ollama (http://host.docker.internal:11434)
+- `CANNALCHEMY_LLM_FALLBACK_MODEL` — llama3.2
