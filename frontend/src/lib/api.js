@@ -28,10 +28,10 @@ export function fetchExplanation(name) {
   return request(`/strains/${encodeURIComponent(name)}/explain`);
 }
 
-export function matchEffects(effects, type = "", limit = 20) {
+export function matchEffects(effects, type = "", limit = 20, explain = false) {
   return request("/match", {
     method: "POST",
-    body: JSON.stringify({ effects, type: type || undefined, limit }),
+    body: JSON.stringify({ effects, type: type || undefined, limit, explain }),
   });
 }
 
