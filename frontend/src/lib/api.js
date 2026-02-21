@@ -24,6 +24,10 @@ export function fetchStrain(name) {
   return request(`/strains/${encodeURIComponent(name)}`);
 }
 
+export function fetchExplanation(name) {
+  return request(`/strains/${encodeURIComponent(name)}/explain`);
+}
+
 export function matchEffects(effects, type = "", limit = 20) {
   return request("/match", {
     method: "POST",
