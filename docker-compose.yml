@@ -5,7 +5,11 @@ services:
     restart: unless-stopped
     ports:
       - "8422:8080"
+    env_file:
+      - cannalchemy.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      - /srv/appdata/cannalchemy/cannalchemy.db:/app/data/processed/cannalchemy.db:ro
+      - /srv/appdata/cannalchemy/cannalchemy.db:/app/data/processed/cannalchemy.db
       - /srv/appdata/cannalchemy/models.pkl:/app/data/models/v2/models.pkl:ro
       - /srv/appdata/cannalchemy/metadata.json:/app/data/models/v2/metadata.json:ro
