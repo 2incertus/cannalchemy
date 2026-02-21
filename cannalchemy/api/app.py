@@ -246,6 +246,7 @@ class MatchRequest(BaseModel):
     effects: list[str]
     type: str = "any"
     limit: int = 50
+    explain: bool = False
 
 
 # Effect category lookup (built from taxonomy at import time)
@@ -691,6 +692,40 @@ def match_strains(request: MatchRequest):
 
     results.sort(key=lambda x: x["score"], reverse=True)
     results = results[: request.limit]
+
+    # Generate summaries if requested
+    if request.explain and _llm_client:
+        conn = _get_db()
+        model_version = _get_model_version()
+        for result in results:
+            # Look up strain_id from name
+            strain_row = conn.execute(
+                "SELECT id FROM strains WHERE name = ?", (result["name"],)
+            ).fetchone()
+            if not strain_row:
+                continue
+            sid = strain_row["id"]
+
+            # Check cache first
+            if _explanation_cache:
+                cached = _explanation_cache.get(sid, "summary", model_version)
+                if cached:
+                    result["summary"] = cached["content"]
+                    continue
+
+            # Generate summary
+            strain_data = {
+                "name": result["name"],
+                "strain_type": result["strain_type"],
+                "compositions": result["compositions"],
+                "predicted_effects": result["top_effects"][:3],
+                "pathways": [],
+            }
+            text, provider = _llm_client.summarize_strain(strain_data)
+            if text:
+                result["summary"] = text
+                if _explanation_cache:
+                    _explanation_cache.put(sid, "summary", model_version, text, provider)
 
     return {"strains": results, "count": len(results)}
 

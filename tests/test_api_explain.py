@@ -135,3 +135,19 @@ class TestExplainEndpoint:
         resp = client.get("/strains/Blue%20Dream/explain")
         assert resp.status_code == 200
         assert resp.json()["explanation"] is None
+
+
+class TestMatchExplain:
+    def test_match_without_explain(self, client):
+        resp = client.post("/match", json={"effects": ["relaxed"]})
+        data = resp.json()
+        # No summary field when explain not requested
+        for strain in data["strains"]:
+            assert "summary" not in strain
+
+    def test_match_with_explain(self, client):
+        resp = client.post("/match", json={"effects": ["relaxed"], "explain": True})
+        data = resp.json()
+        for strain in data["strains"]:
+            assert "summary" in strain
+            assert strain["summary"] == "Relaxing hybrid."
